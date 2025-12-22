@@ -1,0 +1,13 @@
+# Core dependencies
+discord.py>=2.0.0
+python-dotenv
+aiohttp
+
+# Media processing
+Pillow>=10.0.0
+yt-dlp
+spotipy
+PyNaCl  # Required for voice
+
+# YouTube API
+google-api-python-client
