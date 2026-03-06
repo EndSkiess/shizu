@@ -759,22 +759,44 @@ class Pets(commands.Cog):
     
     @app_commands.command(name="setspawn", description="Set pet spawn channel (Admin only)")
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.describe(channel="Channel where pets will spawn")
-    async def setspawn(self, interaction: discord.Interaction, channel: Union[discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.ForumChannel, discord.CategoryChannel]):
-        """Set spawn channel"""
-        if isinstance(channel, discord.CategoryChannel):
-            await interaction.response.send_message("❌ Pets cannot spawn in a category! Please select a text-based channel.", ephemeral=True)
+    @app_commands.describe(channel="Channel where pets will spawn (ID, mention, or name)")
+    async def setspawn(self, interaction: discord.Interaction, channel: str):
+        """Set spawn channel with manual resolution"""
+        guild = interaction.guild
+        resolved_channel = None
+
+        # 1. Try ID
+        if channel.isdigit():
+            resolved_channel = guild.get_channel(int(channel))
+
+        # 2. Try Mention
+        if not resolved_channel and channel.startswith('<#') and channel.endswith('>'):
+            try:
+                c_id = int(channel[2:-1].replace('!', ''))
+                resolved_channel = guild.get_channel(c_id)
+            except: pass
+
+        # 3. Try Name Search
+        if not resolved_channel:
+            clean_name = channel.lstrip('#').lower()
+            resolved_channel = discord.utils.get(guild.channels, name=clean_name)
+            if not resolved_channel:
+                # Fuzzy match
+                resolved_channel = next((c for c in guild.channels if c.name.lower() == clean_name), None)
+
+        if not resolved_channel:
+            await interaction.response.send_message(f"❌ Could not find channel '{channel}'. Please select from the list or provide a valid ID/mention.", ephemeral=True)
             return
 
-        if not hasattr(channel, 'send'):
-            await interaction.response.send_message("❌ This type of channel does not support sending messages!", ephemeral=True)
+        if not hasattr(resolved_channel, 'send'):
+            await interaction.response.send_message(f"❌ {resolved_channel.mention} does not support sending messages!", ephemeral=True)
             return
             
-        await set_spawn_channel(interaction.guild_id, channel.id)
+        await set_spawn_channel(interaction.guild_id, resolved_channel.id)
         
         embed = discord.Embed(
             title="✅ Spawn Channel Set",
-            description=f"Pets will now spawn in {channel.mention}",
+            description=f"Pets will now spawn in {resolved_channel.mention}",
             color=discord.Color.green()
         )
         embed.set_footer(text="Users can use /spawn to summon pets (3/4h limit)")
@@ -799,9 +821,20 @@ class Pets(commands.Cog):
             gif_file = self.get_pet_gif(pet_type)
             if gif_file:
                 spawn_embed.set_thumbnail(url=f"attachment://{pet_type}.gif")
-                await channel.send(embed=spawn_embed, file=gif_file)
+                await resolved_channel.send(embed=spawn_embed, file=gif_file)
             else:
-                await channel.send(embed=spawn_embed)
+                await resolved_channel.send(embed=spawn_embed)
+
+    @setspawn.autocomplete('channel')
+    async def setspawn_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for channel selection"""
+        channels = [
+            app_commands.Choice(name=f"#{c.name}", value=str(c.id))
+            for c in interaction.guild.channels
+            if isinstance(c, (discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.ForumChannel))
+            and current.lower() in c.name.lower()
+        ]
+        return channels[:25] # Discord limit is 25
 
     @app_commands.command(name="spawn", description="Spawn a wild pet (3 uses per 4 hours)")
     async def spawn(self, interaction: discord.Interaction):
