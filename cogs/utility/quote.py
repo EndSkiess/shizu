@@ -268,14 +268,46 @@ class Quote(commands.Cog):
         is_gif = is_animated_avatar or len(decoration_frames) > 1
         num_frames = max(len(avatar_frames), len(decoration_frames), 1)
         
+        # Global cache for font path to avoid repeated searches
+        global FONT_PATH_CACHE
+        FONT_PATH_CACHE = None
+
         def load_system_font(size):
             """Load a standard system font for metadata to avoid missing characters"""
             import pathlib
-            sys_fonts = ["arial.ttf", "DejaVuSans.py", "Verdana.ttf", "LiberationSans-Regular.ttf"]
+            import os
+            from PIL import ImageFont
+
+            global FONT_PATH_CACHE
+
+            # 1. Try Cache
+            if FONT_PATH_CACHE and "OpenSans" not in FONT_PATH_CACHE and os.path.exists(FONT_PATH_CACHE):
+                try: return ImageFont.truetype(FONT_PATH_CACHE, size)
+                except: pass
+
+            root = pathlib.Path(__file__).parent.parent.parent
+            
+            # 2. Try preferred fonts in the fonts folder (FAST)
+            preferred = ["OpenSans-VariableFont_wdth,wght.ttf", "Snowman Varsity.ttf", "Richocet Bold.ttf"]
+            for font_name in preferred:
+                font_path = root / "fonts" / font_name
+                if font_path.exists():
+                    try:
+                        FONT_PATH_CACHE = str(font_path)
+                        return ImageFont.truetype(str(font_path), size)
+                    except Exception as e:
+                        print(f"Error loading preferred font {font_name}: {e}")
+                        FONT_PATH_CACHE = None # Clear cache if it failed
+            
+            # 3. Fallback to system fonts (slower)
+            sys_fonts = ["arial.ttf", "DejaVuSans.ttf", "Verdana.ttf", "LiberationSans-Regular.ttf"]
             for name in sys_fonts:
+                # Windows
                 win_p = pathlib.Path("C:/Windows/Fonts") / name
                 if win_p.exists():
-                    try: return ImageFont.truetype(str(win_p), size)
+                    try:
+                        FONT_PATH_CACHE = str(win_p)
+                        return ImageFont.truetype(str(win_p), size)
                     except: pass
                 # Linux (Render)
                 linux_paths = ["/usr/share/fonts", "/usr/local/share/fonts", "/usr/share/fonts/truetype"]
@@ -283,8 +315,13 @@ class Quote(commands.Cog):
                     lp_p = pathlib.Path(lp)
                     if lp_p.exists():
                         for sp in lp_p.rglob(name):
-                            try: return ImageFont.truetype(str(sp), size)
+                            try:
+                                FONT_PATH_CACHE = str(sp)
+                                return ImageFont.truetype(str(sp), size)
                             except: pass
+            
+            # 4. Last resort
+            FONT_PATH_CACHE = None # Clear cache if no suitable font was found
             return ImageFont.load_default()
 
         # More conservative scaling
