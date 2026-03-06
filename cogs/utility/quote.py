@@ -269,63 +269,40 @@ class Quote(commands.Cog):
         is_gif = is_animated_avatar or len(decoration_frames) > 1
         num_frames = max(len(avatar_frames), len(decoration_frames), 1)
         
-        def load_font(size):
-            global FONT_PATH_CACHE
-            
-            # 1. Try Cache
-            if FONT_PATH_CACHE and os.path.exists(FONT_PATH_CACHE):
-                try: return ImageFont.truetype(FONT_PATH_CACHE, size)
-                except: pass
-
+        def load_system_font(size):
+            """Load a standard system font for metadata to avoid missing characters"""
             import pathlib
-            root = pathlib.Path(__file__).parent.parent.parent
-            
-            # 2. Try preferred fonts in the fonts folder (FAST)
-            preferred = ["Snowman Varsity.ttf", "Richocet Bold.ttf"]
-            for name in preferred:
-                p = root / "fonts" / name
-                if p.exists():
-                    try:
-                        font = ImageFont.truetype(str(p), size)
-                        FONT_PATH_CACHE = str(p)
-                        return font
-                    except: pass
-            
-            # 3. Try common system fonts (FAST)
-            sys_fonts = ["arial.ttf", "DejaVuSans.ttf", "Verdana.ttf"]
+            sys_fonts = ["arial.ttf", "DejaVuSans.py", "Verdana.ttf", "LiberationSans-Regular.ttf"]
             for name in sys_fonts:
                 win_p = pathlib.Path("C:/Windows/Fonts") / name
                 if win_p.exists():
-                    try:
-                        font = ImageFont.truetype(str(win_p), size)
-                        FONT_PATH_CACHE = str(win_p)
-                        return font
+                    try: return ImageFont.truetype(str(win_p), size)
                     except: pass
-            
-            # 4. Deep search (SLOW, only if cache/preferred fail)
-            for p in root.rglob("*.[t|o]tf"):
-                try:
-                    font = ImageFont.truetype(str(p), size)
-                    FONT_PATH_CACHE = str(p)
-                    return font
-                except: pass
-
-            # 5. Final fallback
+                # Linux (Render)
+                linux_paths = ["/usr/share/fonts", "/usr/local/share/fonts", "/usr/share/fonts/truetype"]
+                for lp in linux_paths:
+                    lp_p = pathlib.Path(lp)
+                    if lp_p.exists():
+                        for sp in lp_p.rglob(name):
+                            try: return ImageFont.truetype(str(sp), size)
+                            except: pass
             return ImageFont.load_default()
 
-        # Scale fonts even larger for shorter text
+        # More conservative scaling
         if len(content) < 30: 
-            base_size = 100
+            base_size = 85 # Was 100
         elif len(content) < 80: 
-            base_size = 80
+            base_size = 65 # Was 80
         else:
-            base_size = 60
+            base_size = 50 # Was 60
         
         f_main = load_font(base_size)
-        f_small = load_font(int(base_size * 0.7))
-        f_name = load_font(45) # Slightly larger name
-        f_date = load_font(30) # Slightly larger date
-        f_quote_mark = load_font(180) # Large decorative quote
+        f_small = load_font(int(base_size * 0.75))
+        
+        # Use system fonts for metadata to avoid weird character issues
+        f_name = load_system_font(32) # Smaller name
+        f_date = load_system_font(22) # Smaller date
+        f_quote_mark = load_font(120) # Smaller decorative quote
         
         output_frames = []
         
@@ -377,12 +354,13 @@ class Quote(commands.Cog):
                     cur = [word]
             lines.append(' '.join(cur))
             
-            # Vertical centering
+            # Vertical centering - limit number of lines to prevent overflow
+            lines = lines[:6] # Maximum 6 lines
             total_text_height = len(lines) * l_h
-            sy = (HEIGHT - total_text_height) // 2 - 20
+            sy = (HEIGHT - total_text_height) // 2 - 30
             
             # Quote mark
-            draw.text((tx - 60, sy - 40), '"', font=f_quote_mark, fill=(255, 255, 255, 30))
+            draw.text((tx - 50, sy - 30), '"', font=f_quote_mark, fill=(255, 255, 255, 30))
             
             cy = sy
             for line in lines[:7]:
@@ -392,11 +370,11 @@ class Quote(commands.Cog):
                 draw.text((tx, cy), line, font=a_f, fill=TEXT_COLOR)
                 cy += l_h
             
+            cy += 10
+            draw.line([(tx, cy), (tx + 250, cy)], fill=(255, 255, 255, 80), width=1)
             cy += 15
-            draw.line([(tx, cy), (tx + 300, cy)], fill=(255, 255, 255, 100), width=2)
-            cy += 20
-            draw.text((tx, cy), f"{message.author.display_name}", font=f_name, fill=NAME_COLOR)
-            draw.text((tx, cy + 45), f"@{message.author.name} • {message.created_at.strftime('%b %d, %Y')}", font=f_date, fill=DATE_COLOR)
+            draw.text((tx, cy), f"{message.author.display_name}".upper(), font=f_name, fill=NAME_COLOR)
+            draw.text((tx, cy + 40), f"@{message.author.name} · {message.created_at.strftime('%b %d, %Y')}", font=f_date, fill=DATE_COLOR)
             output_frames.append(bg)
         
         buf = io.BytesIO()
