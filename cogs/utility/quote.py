@@ -109,7 +109,6 @@ class Quote(commands.Cog):
             if msg3.content.lower() != "no":
                 try:
                     new_role = await interaction.guild.create_role(name=msg3.content, reason="Quote Ban Role created via setup")
-                    created_role_id = new_role.id
                     await channel.send(f"✅ Created role **{new_role.name}**.")
                 except Exception as e:
                     await channel.send(f"❌ Failed to create role: {e}")
