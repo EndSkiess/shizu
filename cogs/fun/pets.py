@@ -759,8 +759,12 @@ class Pets(commands.Cog):
     @app_commands.command(name="setspawn", description="Set pet spawn channel (Admin only)")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(channel="Channel where pets will spawn")
-    async def setspawn(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def setspawn(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
         """Set spawn channel"""
+        if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
+            await interaction.response.send_message("❌ Please select a text channel, thread, or voice channel!", ephemeral=True)
+            return
+            
         await set_spawn_channel(interaction.guild_id, channel.id)
         
         embed = discord.Embed(
