@@ -5,13 +5,23 @@ Supports YouTube URLs, search queries, and Spotify playlists
 import discord
 from discord.ext import commands
 from discord import app_commands
-import yt_dlp
+try:
+    import yt_dlp
+    HAS_YTDL = True
+except ImportError:
+    HAS_YTDL = False
+
 import logging
 import asyncio
 import os
 from dotenv import load_dotenv
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
+
+try:
+    import spotipy
+    from spotipy.oauth2 import SpotifyClientCredentials
+    HAS_SPOTIPY = True
+except ImportError:
+    HAS_SPOTIPY = False
 from .music_panel_view import MusicControlPanel
 
 load_dotenv()
@@ -46,7 +56,10 @@ FFMPEG_OPTIONS = {
     'options': '-vn -b:a 192k -ar 48000'  # 192kbps bitrate, 48kHz sample rate
 }
 
-ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+if HAS_YTDL:
+    ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+else:
+    ytdl = None
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
@@ -62,6 +75,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=True):
         """Create audio source from URL"""
+        if not HAS_YTDL:
+            raise RuntimeError("yt-dlp is not installed. Music features are disabled.")
         loop = loop or asyncio.get_event_loop()
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
 
@@ -131,7 +146,7 @@ class Music(commands.Cog):
         spotify_id = os.getenv('SPOTIFY_CLIENT_ID')
         spotify_secret = os.getenv('SPOTIFY_CLIENT_SECRET')
         
-        if spotify_id and spotify_secret:
+        if HAS_SPOTIPY and spotify_id and spotify_secret:
             try:
                 self.spotify = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
                     client_id=spotify_id,
@@ -227,7 +242,7 @@ class Music(commands.Cog):
 
     async def get_spotify_tracks(self, url):
         """Extract tracks from Spotify playlist"""
-        if not self.spotify:
+        if not HAS_SPOTIPY or not self.spotify:
             return None
 
         try:
@@ -323,8 +338,11 @@ class Music(commands.Cog):
     @app_commands.describe(query="YouTube URL, search query, or Spotify link")
     async def music(self, interaction: discord.Interaction, query: str):
         """Play music and show control panel"""
+        if not HAS_YTDL:
+            await interaction.response.send_message("❌ Music features are currently disabled because the required library (`yt-dlp`) is not installed on the server. This usually happens due to low RAM during installation.", ephemeral=True)
+            return
+            
         await interaction.response.defer()
-
         # Check if user is in voice channel
         if not interaction.user.voice:
             await interaction.followup.send("❌ You need to be in a voice channel!", ephemeral=True)

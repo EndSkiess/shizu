@@ -154,9 +154,10 @@ class Economy(commands.Cog):
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="work", description="Work to earn mayem")
+    @app_commands.command(name="work", description="Work to earn cursed coins")
+    @app_commands.checks.cooldown(1, 3600, key=lambda i: i.user.id) # 1 hour cooldown
     async def work(self, interaction: discord.Interaction):
-        """Work for random amount of mayem (50-200)"""
+        """Work for random amount of cursed coins (50-200)"""
         jobs = [
             ("mowed lawns", 50, 150),
             ("delivered packages", 60, 140),
@@ -183,13 +184,16 @@ class Economy(commands.Cog):
         embed = discord.Embed(
             title="💼 Work Complete!",
             description=f"You {job_name} and earned **{earnings}** {CURRENCY_NAME}!",
-            color=discord.Color.blue()
+            color=0xF1C40F # Premium Gold
         )
-        embed.add_field(name="New Balance", value=f"{new_balance:,} {CURRENCY_NAME}")
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+        embed.add_field(name="New Balance", value=f"💰 **{new_balance:,}** {CURRENCY_NAME}")
+        embed.set_footer(text="Keep it up! ⚡")
         
         await interaction.response.send_message(embed=embed)
     
-    @app_commands.command(name="crime", description="Commit a crime for mayem (risky!)")
+    @app_commands.command(name="crime", description="Commit a crime for cursed coins (risky!)")
+    @app_commands.checks.cooldown(1, 7200, key=lambda i: i.user.id) # 2 hours cooldown
     async def crime(self, interaction: discord.Interaction):
         """Commit a crime - high risk, high reward"""
         crimes = [
@@ -213,9 +217,10 @@ class Economy(commands.Cog):
             embed = discord.Embed(
                 title="😈 Crime Successful!",
                 description=f"You {crime_name} and got away with **{earnings}** {CURRENCY_NAME}!",
-                color=discord.Color.dark_green()
+                color=0x2ECC71 # Premium Green
             )
-            embed.add_field(name="New Balance", value=f"{new_balance:,} {CURRENCY_NAME}")
+            embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+            embed.add_field(name="New Balance", value=f"💰 **{new_balance:,}** {CURRENCY_NAME}")
         else:
             fine = random.randint(min_fine, max_fine)
             balance = await get_balance(interaction.user.id)
@@ -230,9 +235,10 @@ class Economy(commands.Cog):
             embed = discord.Embed(
                 title="🚔 Caught!",
                 description=f"You tried to {crime_name.split()[0]} but got caught!\n\nYou paid a fine of **{actual_fine}** {CURRENCY_NAME}.",
-                color=discord.Color.red()
+                color=0xE74C3C # Premium Red
             )
-            embed.add_field(name="New Balance", value=f"{new_balance:,} {CURRENCY_NAME}")
+            embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+            embed.add_field(name="New Balance", value=f"💰 **{new_balance:,}** {CURRENCY_NAME}")
         
         await interaction.response.send_message(embed=embed)
     

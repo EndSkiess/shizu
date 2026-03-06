@@ -1,13 +1,27 @@
-# Core dependencies
+# Core Discord Bot Dependencies
+# TIP: If installation fails due to memory, use: pip install --no-cache-dir -r requirements.txt
 discord.py>=2.0.0
-python-dotenv
-aiohttp
+python-dotenv>=1.0.0
 
-# Media processing
+# HTTP and Async Operations
+aiohttp>=3.8.0
+
+# Media Processing
 Pillow>=10.0.0
-yt-dlp
-spotipy
-PyNaCl  # Required for voice
 
-# YouTube API
-google-api-python-client
+# Music Functionality
+yt-dlp>=2023.0.0
+PyNaCl>=1.5.0
+
+# Spotify Integration
+spotipy>=2.23.0
+
+# YouTube functionality handled by yt-dlp
+
+# MongoDB Integration (Legacy - transitioning to RavenDB)
+motor>=3.3.0
+dnspython>=2.4.0
+pymongo>=4.5
+
+# RavenDB Integration
+ravendb>=5.2.0

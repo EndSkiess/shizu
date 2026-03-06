@@ -1,23 +1,21 @@
 """
-Pet system utilities - Data management for virtual pets with spawn mechanics
+Pet system utilities - Async data management for virtual pets with MongoDB
 """
-import json
-from pathlib import Path
-from datetime import datetime, timedelta
-import random
 import logging
+from datetime import datetime, UTC, timedelta
+import random
+from ..utils.ravendb_manager import raven_db
 
 logger = logging.getLogger('DiscordBot.Pets')
 
 # Constants
 MAX_PETS = 5
 
-# Data paths - Use absolute paths based on bot root directory
-# Get the bot root directory (3 levels up from this file: cogs/fun/pets_utils.py -> bot root)
-BOT_ROOT = Path(__file__).parent.parent.parent
-PETS_PATH = BOT_ROOT / "data" / "pets.json"
-SPAWNS_PATH = BOT_ROOT / "data" / "pet_spawns.json"
-USER_SPAWNS_PATH = BOT_ROOT / "data" / "user_spawns.json"
+# ID Prefixes (mimicking collections)
+PETS_PREFIX = "pets"
+SPAWNS_PREFIX = "spawns"
+USER_SPAWNS_PREFIX = "user_spawns"
+REFILLS_PREFIX = "refills"
 
 # Pet definitions with rarity and spawn chances
 PET_TYPES = {
@@ -88,10 +86,10 @@ TYPE_ADVANTAGES = {
     "fox": ["rabbit"],
     "panda": ["rabbit"],
     "raccoon": [],
-    "penguin": ["fish"], # Joke entry, or maybe against shark?
+    "penguin": [],
     "cyclops": ["lion", "wolf"],
     "griffin": ["lion", "wolf", "eagle"],
-    "cerberus": ["ghost", "skeleton", "human"], # Placeholder types
+    "cerberus": ["ghost", "skeleton", "human"],
     "hydra": ["dragon", "ancient_dragon"]
 }
 
@@ -113,9 +111,9 @@ ACHIEVEMENTS = {
 
 # Evolution thresholds
 EVOLUTION_LEVELS = {
-    1: 25,   # First evolution at level 25
-    2: 50,   # Second evolution at level 50
-    3: 100   # Third evolution at level 100
+    1: 25,   
+    2: 50,   
+    3: 100   
 }
 
 # Mood definitions
@@ -127,190 +125,101 @@ MOODS = {
 }
 
 # Shiny variants (rare spawns)
-SHINY_CHANCE = 0.01  # 1% chance
-SHINY_STAT_BONUS = 1.2  # 20% bonus to all stats
+SHINY_CHANCE = 0.01
+SHINY_STAT_BONUS = 1.2
 SHINY_EMOJI_PREFIX = "✨"
 
+async def load_pets_data(user_id):
+    """Load user pets from RavenDB"""
+    doc_id = f"{PETS_PREFIX}/{user_id}"
+    data = await raven_db.load_document(doc_id)
+    if not data:
+        return []
+    return data.get('pets', [])
 
-def load_pets():
-    """Load user pets from JSON file"""
-    if not PETS_PATH.exists():
-        return {}
-    
-    try:
-        with open(PETS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-            # Pet type migration map (old_key -> new_key)
-            PET_TYPE_MIGRATIONS = {
-                "t-rex": "trex",
-                # Add more migrations here if needed in the future
-            }
-            
-            # Migrate old single-pet format to multi-pet format
-            migrated = False
-            for user_id, pet_data in list(data.items()):
-                # Check if old format (dict with 'type' key directly)
-                if isinstance(pet_data, dict) and 'type' in pet_data:
-                    # Convert to list format
-                    data[user_id] = [pet_data]
-                    migrated = True
-                    logger.info(f"Migrated pet data for user {user_id} to multi-pet format")
-                
-                # Ensure pet_data is a list
-                if isinstance(data[user_id], list):
-                    # Migrate old pet type keys to new ones
-                    for pet in data[user_id]:
-                        if pet.get("type") in PET_TYPE_MIGRATIONS:
-                            old_type = pet["type"]
-                            new_type = PET_TYPE_MIGRATIONS[old_type]
-                            pet["type"] = new_type
-                            migrated = True
-                            logger.info(f"Migrated pet type '{old_type}' -> '{new_type}' for user {user_id}")
-            
-            # Save migrated data
-            if migrated:
-                save_pets(data)
-            
-            return data
-    except Exception as e:
-        logger.error(f"Failed to load pets: {e}")
-        return {}
+async def save_pets_data(user_id, pets_list):
+    """Save user pets to RavenDB"""
+    doc_id = f"{PETS_PREFIX}/{user_id}"
+    await raven_db.save_document(doc_id, {'pets': pets_list})
 
-def save_pets(data):
-    """Save user pets to JSON file"""
-    try:
-        PETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(PETS_PATH, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        logger.error(f"Failed to save pets: {e}")
-
-def load_spawns():
-    """Load spawn data from JSON file"""
-    if not SPAWNS_PATH.exists():
-        return {}
-    
-    try:
-        with open(SPAWNS_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load spawns: {e}")
-        return {}
-
-def save_spawns(data):
-    """Save spawn data to JSON file"""
-    try:
-        SPAWNS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(SPAWNS_PATH, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        logger.error(f"Failed to save spawns: {e}")
-
-def load_user_spawns():
-    """Load user spawn history from JSON file"""
-    if not USER_SPAWNS_PATH.exists():
-        return {}
-    
-    try:
-        with open(USER_SPAWNS_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load user spawns: {e}")
-        return {}
-
-def save_user_spawns(data):
-    """Save user spawn history to JSON file"""
-    try:
-        USER_SPAWNS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(USER_SPAWNS_PATH, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        logger.error(f"Failed to save user spawns: {e}")
-
-def can_user_spawn(user_id):
+async def can_user_spawn(user_id):
     """Check if user can spawn a pet (3 times per 4 hours)"""
-    user_spawns = load_user_spawns()
-    user_str = str(user_id)
-    
-    if user_str not in user_spawns:
+    doc_id = f"{USER_SPAWNS_PREFIX}/{user_id}"
+    data = await raven_db.load_document(doc_id)
+    if not data:
         return True, None
     
-    timestamps = user_spawns[user_str]
-    now = datetime.utcnow()
+    timestamps = data.get('timestamps', [])
+    now = datetime.now(UTC)
     cutoff = now - timedelta(hours=4)
     
-    # Filter valid timestamps
-    valid_timestamps = [ts for ts in timestamps if datetime.fromisoformat(ts) > cutoff]
+    # Ensure items are datetime objects before comparing
+    valid_timestamps = []
+    for ts in timestamps:
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        if dt > cutoff:
+            valid_timestamps.append(ts)
     
     if len(valid_timestamps) < 3:
         return True, None
     
-    # Calculate time until oldest spawn expires
-    oldest = min([datetime.fromisoformat(ts) for ts in valid_timestamps])
-    reset_time = oldest + timedelta(hours=4)
+    oldest_dt = min([datetime.fromisoformat(ts).replace(tzinfo=UTC) if datetime.fromisoformat(ts).tzinfo is None else datetime.fromisoformat(ts) for ts in valid_timestamps])
+    reset_time = oldest_dt + timedelta(hours=4)
     remaining = (reset_time - now).total_seconds()
     
     return False, remaining
 
-def record_user_spawn(user_id):
+async def record_user_spawn(user_id):
     """Record a user spawn"""
-    user_spawns = load_user_spawns()
-    user_str = str(user_id)
-    
-    if user_str not in user_spawns:
-        user_spawns[user_str] = []
-    
-    now = datetime.utcnow()
-    timestamps = user_spawns[user_str]
-    
-    # Add new timestamp
-    timestamps.append(now.isoformat())
-    
-    # Clean up old timestamps
+    doc_id = f"{USER_SPAWNS_PREFIX}/{user_id}"
+    now = datetime.now(UTC)
     cutoff = now - timedelta(hours=4)
-    user_spawns[user_str] = [ts for ts in timestamps if datetime.fromisoformat(ts) > cutoff]
     
-    save_user_spawns(user_spawns)
+    data = await raven_db.load_document(doc_id)
+    timestamps = data.get('timestamps', []) if data else []
+    
+    # Add new and clean up old
+    timestamps.append(now.isoformat())
+    new_timestamps = []
+    for ts in timestamps:
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        if dt > cutoff:
+            new_timestamps.append(ts)
+    
+    await raven_db.save_document(doc_id, {'timestamps': new_timestamps})
 
 def get_random_pet():
-    """Get a random pet based on spawn weights"""
     pets = list(PET_TYPES.keys())
     weights = [PET_TYPES[p]["spawn_weight"] for p in pets]
     return random.choices(pets, weights=weights)[0]
 
 def check_evolution(pet):
-    """Check and apply evolution if pet reached threshold"""
     if "evolution_level" not in pet:
         pet["evolution_level"] = 0
     
     level = pet.get("level", 1)
     current_evo = pet.get("evolution_level", 0)
     
-    # Check each evolution threshold
     new_evo = current_evo
     for evo_level, required_level in EVOLUTION_LEVELS.items():
         if level >= required_level and current_evo < evo_level:
             new_evo = evo_level
     
-    # Apply evolution if changed
     if new_evo > current_evo:
         pet["evolution_level"] = new_evo
-        # Check for evolution achievements
         check_and_award_achievements(pet)
         return True
-    
     return False
 
-
 async def send_low_energy_warning(bot, user_id, pet):
-    """Send DM warning to user about low pet energy"""
     try:
         user = await bot.fetch_user(int(user_id))
         pet_info = PET_TYPES.get(pet["type"])
-        
-        if not pet_info:
-            return
+        if not pet_info: return
         
         pet_name = pet.get("nickname") or pet_info["name"]
         
@@ -320,927 +229,384 @@ async def send_low_energy_warning(bot, user_id, pet):
             description=f"Your pet **{pet_name}** is in critical condition!",
             color=discord.Color.red()
         )
-        
         embed.add_field(
             name=f"{pet_info['emoji']} {pet_name}",
-            value=f"⚡ **Energy: {pet['energy']}/100** 🔴\n"
-                  f"💚 Hunger: {pet['hunger']}/100\n"
-                  f"😊 Happiness: {pet['happiness']}/100",
+            value=f"⚡ **Energy: {pet['energy']}/100** 🔴\n💚 Hunger: {pet['hunger']}/100\n😊 Happiness: {pet['happiness']}/100",
             inline=False
         )
-        
-        embed.add_field(
-            name="⚠️ URGENT ACTION REQUIRED",
-            value="Your pet's energy is critically low! If you don't take action soon, **you risk losing your pet permanently!**\n\n"
-                  "**What to do:**\n"
-                  "• Use `/feed` to restore hunger\n"
-                  "• Use `/playpet` to increase happiness\n"
-                  "• Let your pet rest to regenerate energy\n"
-                  "• Avoid battles until energy recovers",
-            inline=False
-        )
-        
         embed.set_footer(text="Energy regenerates at 15 per hour. Take care of your pet!")
-        
         await user.send(embed=embed)
-        logger.info(f"Sent low energy warning to user {user_id} for pet {pet_name}")
     except Exception as e:
-        logger.error(f"Failed to send DM warning to user {user_id}: {e}")
+        logger.error(f"Failed to send DM warning: {e}")
 
-
-def get_user_pets(user_id, bot=None):
-    """Get all user's pets with updated stats"""
-    pets = load_pets()
-    user_pets = pets.get(str(user_id), [])
-    # Ensure it's a list (for migration safety)
-    if isinstance(user_pets, dict):
-        user_pets = [user_pets]
-    
-    # Update stats for all pets
+async def get_user_pets(user_id, bot=None):
+    user_pets = await load_pets_data(user_id)
+    updated = False
     for pet in user_pets:
-        update_pet_stats(pet, user_id, bot)
+        if await update_pet_stats(pet, user_id, bot):
+            updated = True
     
-    # Save updated stats
-    if user_pets:
-        pets[str(user_id)] = user_pets
-        save_pets(pets)
-    
+    if updated:
+        await save_pets_data(user_id, user_pets)
     return user_pets
 
-def get_user_pet_by_name(user_id, pet_name):
-    """Get specific pet by name (case-insensitive)"""
-    user_pets = get_user_pets(user_id)
+async def get_user_pet_by_name(user_id, pet_name):
+    user_pets = await get_user_pets(user_id)
     pet_name_lower = pet_name.lower()
-    
     for pet in user_pets:
         pet_info = PET_TYPES.get(pet["type"])
-        # Check both pet type name and nickname
-        if pet_info and pet_info["name"].lower() == pet_name_lower:
-            return pet
-        # Also check nickname if it exists
-        if pet.get("nickname") and pet["nickname"].lower() == pet_name_lower:
-            return pet
-    
+        if pet_info and pet_info["name"].lower() == pet_name_lower: return pet
+        if pet.get("nickname") and pet["nickname"].lower() == pet_name_lower: return pet
     return None
 
-def update_pet_stats(pet, user_id=None, bot=None):
-    """Update pet stats based on time elapsed (stat decay/regeneration)"""
+async def update_pet_stats(pet, user_id=None, bot=None):
     if "last_updated" not in pet:
-        pet["last_updated"] = datetime.utcnow().isoformat()
-        return pet
+        pet["last_updated"] = datetime.now(UTC).isoformat()
+        return True
     
     last_updated = datetime.fromisoformat(pet["last_updated"])
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     hours_elapsed = (now - last_updated).total_seconds() / 3600
     
-    if hours_elapsed < 0.1:  # Less than 6 minutes, skip update
-        return pet
+    if hours_elapsed < 0.1: return False
     
-    # Get rarity ability modifiers
     rarity = pet.get("rarity", "common")
     ability = RARITY_ABILITIES.get(rarity, {})
     
-    # Hunger decay (10 per 6 hours, affected by rarity ability)
-    hunger_decay_rate = 10 / 6  # per hour
+    hunger_decay_rate = 10 / 6
     hunger_mult = ability.get("hunger_decay_mult", 1.0)
-    hunger_loss = int(hours_elapsed * hunger_decay_rate * hunger_mult)
-    pet["hunger"] = max(0, pet["hunger"] - hunger_loss)
+    pet["hunger"] = max(0, pet["hunger"] - int(hours_elapsed * hunger_decay_rate * hunger_mult))
     
-    # Happiness decay (10 per 6 hours)
-    happiness_decay_rate = 10 / 6  # per hour
-    happiness_loss = int(hours_elapsed * happiness_decay_rate)
-    pet["happiness"] = max(0, pet["happiness"] - happiness_loss)
+    happiness_decay_rate = 10 / 6
+    pet["happiness"] = max(0, pet["happiness"] - int(hours_elapsed * happiness_decay_rate))
     
-    # Energy regeneration (15 per hour, affected by rarity ability)
-    energy_regen_rate = 15  # per hour
+    energy_regen_rate = 15
     energy_mult = ability.get("energy_regen_mult", 1.0)
-    energy_gain = int(hours_elapsed * energy_regen_rate * energy_mult)
-    pet["energy"] = min(100, pet["energy"] + energy_gain)
+    pet["energy"] = min(100, pet["energy"] + int(hours_elapsed * energy_regen_rate * energy_mult))
     
-    # Update timestamp
     pet["last_updated"] = now.isoformat()
     
-    # Check for low energy and send DM warning
     if user_id and bot and pet["energy"] < 10:
-        # Check if we've already warned about this pet recently
-        if "last_warning" not in pet or not pet["last_warning"]:
-            should_warn = True
-        else:
-            last_warning = datetime.fromisoformat(pet["last_warning"])
-            # Only warn once per 24 hours
-            should_warn = (now - last_warning).total_seconds() > 86400
-        
-        if should_warn:
-            # Send DM warning asynchronously
-            import asyncio
-            try:
-                # Create task to send DM
-                asyncio.create_task(send_low_energy_warning(bot, user_id, pet))
-                pet["last_warning"] = now.isoformat()
-            except Exception as e:
-                logger.error(f"Failed to create DM warning task: {e}")
-    
-    return pet
+        last_warn = pet.get("last_warning")
+        if not last_warn or (now - datetime.fromisoformat(last_warn)).total_seconds() > 86400:
+            asyncio.create_task(send_low_energy_warning(bot, user_id, pet))
+            pet["last_warning"] = now.isoformat()
+    return True
 
 def get_pet_mood(pet):
-    """Calculate pet mood based on stats"""
     avg_stat = (pet["hunger"] + pet["happiness"] + pet["energy"]) / 3
-    
-    if avg_stat >= MOODS["happy"]["threshold"]:
-        return "happy"
-    elif avg_stat >= MOODS["content"]["threshold"]:
-        return "content"
-    elif avg_stat >= MOODS["sad"]["threshold"]:
-        return "sad"
-    else:
-        return "neglected"
+    if avg_stat >= MOODS["happy"]["threshold"]: return "happy"
+    if avg_stat >= MOODS["content"]["threshold"]: return "content"
+    if avg_stat >= MOODS["sad"]["threshold"]: return "sad"
+    return "neglected"
 
 def get_pet_display_name(pet):
-    """Get display name for pet (nickname or type name)"""
     pet_info = PET_TYPES.get(pet["type"])
-    if not pet_info:
-        return "Unknown"
-    
+    if not pet_info: return "Unknown"
     nickname = pet.get("nickname")
-    if nickname:
-        return f"{nickname} ({pet_info['name']})"
-    
-    # Add shiny prefix if shiny
-    if pet.get("is_shiny", False):
-        return f"{SHINY_EMOJI_PREFIX} {pet_info['name']}"
-    
+    if nickname: return f"{nickname} ({pet_info['name']})"
+    if pet.get("is_shiny", False): return f"{SHINY_EMOJI_PREFIX} {pet_info['name']}"
     return pet_info["name"]
 
-def get_evolution_stars(evolution_level):
-    """Get evolution star display"""
-    if evolution_level <= 0:
-        return ""
-    return "⭐" * evolution_level
+def get_evolution_stars(evo_level):
+    return "⭐" * evo_level if evo_level > 0 else ""
 
 def check_and_award_achievements(pet, action=None):
-    """Check and award achievements based on pet stats and actions"""
-    if "achievements" not in pet:
-        pet["achievements"] = []
-    
-    new_achievements = []
-    
-    # Level-based achievements
+    if "achievements" not in pet: pet["achievements"] = []
+    new_ach = []
     level = pet.get("level", 1)
-    if level >= 10 and "level_10" not in pet["achievements"]:
-        pet["achievements"].append("level_10")
-        new_achievements.append("level_10")
-    if level >= 25 and "level_25" not in pet["achievements"]:
-        pet["achievements"].append("level_25")
-        new_achievements.append("level_25")
-    if level >= 50 and "level_50" not in pet["achievements"]:
-        pet["achievements"].append("level_50")
-        new_achievements.append("level_50")
-    if level >= 100 and "level_100" not in pet["achievements"]:
-        pet["achievements"].append("level_100")
-        new_achievements.append("level_100")
+    for l in [10, 25, 50, 100]:
+        key = f"level_{l}"
+        if level >= l and key not in pet["achievements"]:
+            pet["achievements"].append(key); new_ach.append(key)
     
-    # Evolution achievements
-    evo_level = pet.get("evolution_level", 0)
-    if evo_level >= 1 and "evolved_once" not in pet["achievements"]:
-        pet["achievements"].append("evolved_once")
-        new_achievements.append("evolved_once")
-    if evo_level >= 3 and "max_evolution" not in pet["achievements"]:
-        pet["achievements"].append("max_evolution")
-        new_achievements.append("max_evolution")
-    
-    # Action-based achievements
+    evo = pet.get("evolution_level", 0)
+    if evo >= 1 and "evolved_once" not in pet["achievements"]:
+        pet["achievements"].append("evolved_once"); new_ach.append("evolved_once")
+    if evo >= 3 and "max_evolution" not in pet["achievements"]:
+        pet["achievements"].append("max_evolution"); new_ach.append("max_evolution")
+        
     if action == "battle_won" and "battle_won" not in pet["achievements"]:
-        pet["achievements"].append("battle_won")
-        new_achievements.append("battle_won")
-    
-    # Streak achievements
+        pet["achievements"].append("battle_won"); new_ach.append("battle_won")
+        
     streak = pet.get("battle_streak", 0)
     if streak >= 5 and "battle_streak_5" not in pet["achievements"]:
-        pet["achievements"].append("battle_streak_5")
-        new_achievements.append("battle_streak_5")
+        pet["achievements"].append("battle_streak_5"); new_ach.append("battle_streak_5")
     if streak >= 10 and "battle_streak_10" not in pet["achievements"]:
-        pet["achievements"].append("battle_streak_10")
-        new_achievements.append("battle_streak_10")
-    
-    # Counter-based achievements
-    times_fed = pet.get("times_fed", 0)
-    if times_fed >= 50 and "fully_fed" not in pet["achievements"]:
-        pet["achievements"].append("fully_fed")
-        new_achievements.append("fully_fed")
-    
-    times_trained = pet.get("times_trained", 0)
-    if times_trained >= 50 and "well_trained" not in pet["achievements"]:
-        pet["achievements"].append("well_trained")
-        new_achievements.append("well_trained")
-    
-    return new_achievements
+        pet["achievements"].append("battle_streak_10"); new_ach.append("battle_streak_10")
+        
+    if pet.get("times_fed", 0) >= 50 and "fully_fed" not in pet["achievements"]:
+        pet["achievements"].append("fully_fed"); new_ach.append("fully_fed")
+    if pet.get("times_trained", 0) >= 50 and "well_trained" not in pet["achievements"]:
+        pet["achievements"].append("well_trained"); new_ach.append("well_trained")
+    return new_ach
 
-def create_pet(user_id, pet_type, is_shiny=False, nickname=None):
-    """Create a new pet for user or level up if duplicate"""
-    pets = load_pets()
-    user_id_str = str(user_id)
+async def create_pet(user_id, pet_type, is_shiny=False, nickname=None):
+    user_pets = await load_pets_data(user_id)
     pet_info = PET_TYPES[pet_type]
     
-    # Initialize user's pet list if doesn't exist
-    if user_id_str not in pets:
-        pets[user_id_str] = []
+    existing = next((p for p in user_pets if p["type"] == pet_type), None)
+    if existing:
+        xp_gain = int(200 * RARITY_INFO[pet_info["rarity"]]["xp_bonus"])
+        old_level = existing["level"]
+        existing["xp"] += xp_gain
+        while existing["xp"] >= xp_for_next_level(existing["level"]):
+            existing["xp"] -= xp_for_next_level(existing["level"])
+            existing["level"] += 1
+        await save_pets_data(user_id, user_pets)
+        return {"status": "leveled_up", "pet": existing, "old_level": old_level, "xp_gained": xp_gain}
     
-    # Ensure it's a list (for migration safety)
-    if isinstance(pets[user_id_str], dict):
-        pets[user_id_str] = [pets[user_id_str]]
-    
-    user_pets = pets[user_id_str]
-    
-    # Check if user already has this pet type
-    existing_pet = None
-    for pet in user_pets:
-        if pet["type"] == pet_type:
-            existing_pet = pet
-            break
-    
-    # If user has this pet type, level it up
-    if existing_pet:
-        # Add XP for catching duplicate (200 base XP)
-        base_xp = 200
-        rarity_bonus = RARITY_INFO[pet_info["rarity"]]["xp_bonus"]
-        xp_gain = int(base_xp * rarity_bonus)
-        
-        old_level = existing_pet["level"]
-        existing_pet["xp"] += xp_gain
-        
-        # Check for level up
-        while existing_pet["xp"] >= xp_for_next_level(existing_pet["level"]):
-            existing_pet["xp"] -= xp_for_next_level(existing_pet["level"])
-            existing_pet["level"] += 1
-        
-        save_pets(pets)
-        
-        return {
-            "status": "leveled_up",
-            "pet": existing_pet,
-            "old_level": old_level,
-            "xp_gained": xp_gain
-        }
-    
-    # Check if user has reached max pets
     if len(user_pets) >= MAX_PETS:
-        return {
-            "status": "max_reached",
-            "max_pets": MAX_PETS,
-            "current_pets": user_pets
-        }
+        return {"status": "max_reached", "max_pets": MAX_PETS, "current_pets": user_pets}
     
-    # Create new pet
     new_pet = {
-        "type": pet_type,
-        "rarity": pet_info["rarity"],
-        "level": 1,
-        "xp": 0,
-        "total_xp": 0,  # Track lifetime XP
-        "hunger": 100,
-        "happiness": 100,
-        "energy": 100,
-        "last_fed": None,
-        "last_played": None,
-        "last_trained": None,
-        "last_battled": None,
-        "last_updated": datetime.utcnow().isoformat(),
-        "caught_at": datetime.utcnow().isoformat(),
-        # New fields for enhancements
-        "nickname": nickname,
-        "is_shiny": is_shiny,
-        "evolution_level": 0,
-        "achievements": ["first_catch"],  # First achievement!
-        "battle_wins": 0,
-        "battle_losses": 0,
-        "battle_streak": 0,
-        "times_fed": 0,
-        "times_trained": 0
+        "type": pet_type, "rarity": pet_info["rarity"], "level": 1, "xp": 0, "total_xp": 0,
+        "hunger": 100, "happiness": 100, "energy": 100, "last_fed": None, "last_played": None,
+        "last_trained": None, "last_battled": None, "last_updated": datetime.now(UTC).isoformat(),
+        "caught_at": datetime.now(UTC).isoformat(), "nickname": nickname, "is_shiny": is_shiny,
+        "evolution_level": 0, "achievements": ["first_catch"], "battle_wins": 0, "battle_losses": 0,
+        "battle_streak": 0, "times_fed": 0, "times_trained": 0
     }
-    
-    # Apply shiny stat bonus if shiny
     if is_shiny:
-        new_pet["hunger"] = int(100 * SHINY_STAT_BONUS)
-        new_pet["happiness"] = int(100 * SHINY_STAT_BONUS)
-        new_pet["energy"] = int(100 * SHINY_STAT_BONUS)
+        for s in ["hunger", "happiness", "energy"]: new_pet[s] = int(100 * SHINY_STAT_BONUS)
     
     user_pets.append(new_pet)
-    save_pets(pets)
-    
-    return {
-        "status": "new",
-        "pet": new_pet
-    }
+    await save_pets_data(user_id, user_pets)
+    return {"status": "new", "pet": new_pet}
 
-
-
-
-def remove_pet(user_id, pet_name):
-    """Remove a pet by name"""
-    pets = load_pets()
-    user_id_str = str(user_id)
-    
-    if user_id_str not in pets:
-        return {"status": "no_pets"}
-    
-    user_pets = pets[user_id_str]
-    if isinstance(user_pets, dict):
-        user_pets = [user_pets]
-        pets[user_id_str] = user_pets
-    
-    # Find and remove the pet
+async def remove_pet(user_id, pet_name):
+    user_pets = await load_pets_data(user_id)
     pet_name_lower = pet_name.lower()
-    removed_pet = None
-    
+    removed = None
     for i, pet in enumerate(user_pets):
-        pet_info = PET_TYPES.get(pet["type"])
-        # Check both pet type name and nickname
-        if pet_info and pet_info["name"].lower() == pet_name_lower:
-            removed_pet = user_pets.pop(i)
-            break
-        # Also check nickname if it exists
-        if pet.get("nickname") and pet["nickname"].lower() == pet_name_lower:
-            removed_pet = user_pets.pop(i)
-            break
-    
-    if not removed_pet:
-        return {"status": "not_found", "pet_name": pet_name}
-    
-    save_pets(pets)
-    
-    return {
-        "status": "removed",
-        "pet": removed_pet
-    }
+        info = PET_TYPES.get(pet["type"])
+        if (info and info["name"].lower() == pet_name_lower) or (pet.get("nickname", "").lower() == pet_name_lower):
+            removed = user_pets.pop(i); break
+    if not removed: return {"status": "not_found", "pet_name": pet_name}
+    await save_pets_data(user_id, user_pets)
+    return {"status": "removed", "pet": removed}
 
+async def can_feed(user_id, pet_name):
+    pet = await get_user_pet_by_name(user_id, pet_name)
+    if not pet: return False
+    if not pet.get("last_fed"): return True
+    since = datetime.now(UTC) - datetime.fromisoformat(pet["last_fed"])
+    return since >= timedelta(hours=1)
 
-def can_feed(user_id, pet_name=None):
-    """Check if user can feed their pet"""
+async def can_play(user_id, pet_name):
+    pet = await get_user_pet_by_name(user_id, pet_name)
+    if not pet: return False
+    if not pet.get("last_played"): return True
+    since = datetime.now(UTC) - datetime.fromisoformat(pet["last_played"])
+    return since >= timedelta(hours=1)
+
+async def can_train(user_id, pet_name):
+    pet = await get_user_pet_by_name(user_id, pet_name)
+    if not pet or pet.get("energy", 0) < 20: return False
+    if not pet.get("last_trained"): return True
+    since = datetime.now(UTC) - datetime.fromisoformat(pet["last_trained"])
+    return since >= timedelta(hours=2)
+
+async def can_battle(user_id, pet_name):
+    pet = await get_user_pet_by_name(user_id, pet_name)
+    if not pet or pet.get("energy", 0) < 30: return False
+    if not pet.get("last_battled"): return True
+    since = datetime.now(UTC) - datetime.fromisoformat(pet["last_battled"])
+    return since >= timedelta(hours=3)
+
+async def feed_pet(user_id, pet_name=None):
+    user_pets = await load_pets_data(user_id)
+    target = None
     if pet_name:
-        pet = get_user_pet_by_name(user_id, pet_name)
+        target = await get_user_pet_by_name(user_id, pet_name)
     else:
-        user_pets = get_user_pets(user_id)
-        pet = user_pets[0] if user_pets else None
+        target = user_pets[0] if user_pets else None
     
-    if not pet or not pet.get("last_fed"):
-        return True
-    
-    last_fed = datetime.fromisoformat(pet["last_fed"])
-    return datetime.utcnow() - last_fed >= timedelta(hours=1)
+    if not target: return None
+    target["hunger"] = min(100, target["hunger"] + 30)
+    target["last_fed"] = datetime.now(UTC).isoformat()
+    target["times_fed"] = target.get("times_fed", 0) + 1
+    check_and_award_achievements(target)
+    await save_pets_data(user_id, user_pets)
+    return target["hunger"]
 
-def feed_pet(user_id, pet_name=None):
-    """Feed user's pet"""
-    pets = load_pets()
-    user_id_str = str(user_id)
-    
-    if user_id_str not in pets:
-        return None
-    
-    user_pets = pets[user_id_str]
-    if isinstance(user_pets, dict):
-        user_pets = [user_pets]
-        pets[user_id_str] = user_pets
-    
-    # Find the pet
-    target_pet = None
+async def play_with_pet(user_id, pet_name=None):
+    user_pets = await load_pets_data(user_id)
+    target = None
     if pet_name:
-        pet_name_lower = pet_name.lower()
-        for pet in user_pets:
-            pet_info = PET_TYPES.get(pet["type"])
-            # Check both pet type name and nickname
-            if pet_info and pet_info["name"].lower() == pet_name_lower:
-                target_pet = pet
-                break
-            # Also check nickname if it exists
-            if pet.get("nickname") and pet["nickname"].lower() == pet_name_lower:
-                target_pet = pet
-                break
+        target = await get_user_pet_by_name(user_id, pet_name)
     else:
-        target_pet = user_pets[0] if user_pets else None
+        target = user_pets[0] if user_pets else None
     
-    if not target_pet:
-        return None
-    
-    target_pet["hunger"] = min(100, target_pet["hunger"] + 30)
-    target_pet["last_fed"] = datetime.utcnow().isoformat()
-    
-    # Increment counter
-    if "times_fed" not in target_pet:
-        target_pet["times_fed"] = 0
-    target_pet["times_fed"] += 1
-    
-    # Check achievements
-    check_and_award_achievements(target_pet)
-    save_pets(pets)
-    return target_pet["hunger"]
+    if not target: return None
+    mult = RARITY_ABILITIES.get(target.get("rarity", "common"), {}).get("play_bonus", 1.0)
+    target["happiness"] = min(100, target["happiness"] + int(30 * mult))
+    target["last_played"] = datetime.now(UTC).isoformat()
+    await save_pets_data(user_id, user_pets)
+    return target["happiness"]
 
-def can_play(user_id, pet_name=None):
-    """Check if user can play with their pet"""
-    if pet_name:
-        pet = get_user_pet_by_name(user_id, pet_name)
-    else:
-        user_pets = get_user_pets(user_id)
-        pet = user_pets[0] if user_pets else None
-    
-    if not pet or not pet.get("last_played"):
-        return True
-    
-    last_played = datetime.fromisoformat(pet["last_played"])
-    return datetime.utcnow() - last_played >= timedelta(hours=1)
+async def can_refill_all(user_id):
+    doc_id = f"{REFILLS_PREFIX}/{user_id}"
+    data = await raven_db.load_document(doc_id)
+    if not data: return True, None
+    last = datetime.fromisoformat(data['last_refill'])
+    if last.tzinfo is None: last = last.replace(tzinfo=UTC)
+    now = datetime.now(UTC)
+    if now - last >= timedelta(hours=24): return True, None
+    rem = (last + timedelta(hours=24) - now).total_seconds()
+    return False, rem
 
-def play_with_pet(user_id, pet_name=None):
-    """Play with user's pet"""
-    pets = load_pets()
-    user_id_str = str(user_id)
-    
-    if user_id_str not in pets:
-        return None
-    
-    user_pets = pets[user_id_str]
-    if isinstance(user_pets, dict):
-        user_pets = [user_pets]
-        pets[user_id_str] = user_pets
-    
-    # Find the pet
-    target_pet = None
-    if pet_name:
-        pet_name_lower = pet_name.lower()
-        for pet in user_pets:
-            pet_info = PET_TYPES.get(pet["type"])
-            # Check both pet type name and nickname
-            if pet_info and pet_info["name"].lower() == pet_name_lower:
-                target_pet = pet
-                break
-            # Also check nickname if it exists
-            if pet.get("nickname") and pet["nickname"].lower() == pet_name_lower:
-                target_pet = pet
-                break
-    else:
-        target_pet = user_pets[0] if user_pets else None
-    
-    if not target_pet:
-        return None
-    
-    # Apply rarity ability bonus
-    rarity = target_pet.get("rarity", "common")
-    ability = RARITY_ABILITIES.get(rarity, {})
-    play_mult = ability.get("play_bonus", 1.0)
-    
-    happiness_gain = int(30 * play_mult)
-    target_pet["happiness"] = min(100, target_pet["happiness"] + happiness_gain)
-    target_pet["last_played"] = datetime.utcnow().isoformat()
-    save_pets(pets)
-    return target_pet["happiness"]
-
-def can_train(user_id, pet_name=None):
-    """Check if user can train their pet"""
-    if pet_name:
-        pet = get_user_pet_by_name(user_id, pet_name)
-    else:
-        user_pets = get_user_pets(user_id)
-        pet = user_pets[0] if user_pets else None
-    
-    if not pet:
-        return False
-    
-    if pet["energy"] < 20:
-        return False
-    
-    if not pet.get("last_trained"):
-        return True
-    
-    last_trained = datetime.fromisoformat(pet["last_trained"])
-    return datetime.utcnow() - last_trained >= timedelta(hours=2)
-
-def train_pet(user_id, pet_name=None):
-    """Train user's pet"""
-    pets = load_pets()
-    user_id_str = str(user_id)
-    
-    if user_id_str not in pets:
-        return None
-    
-    user_pets = pets[user_id_str]
-    if isinstance(user_pets, dict):
-        user_pets = [user_pets]
-        pets[user_id_str] = user_pets
-    
-    # Find the pet
-    target_pet = None
-    if pet_name:
-        pet_name_lower = pet_name.lower()
-        for pet in user_pets:
-            pet_info = PET_TYPES.get(pet["type"])
-            # Check both pet type name and nickname
-            if pet_info and pet_info["name"].lower() == pet_name_lower:
-                target_pet = pet
-                break
-            # Also check nickname if it exists
-            if pet.get("nickname") and pet["nickname"].lower() == pet_name_lower:
-                target_pet = pet
-                break
-    else:
-        target_pet = user_pets[0] if user_pets else None
-    
-    if not target_pet:
-        return None
-    
-    # Deduct energy
-    target_pet["energy"] -= 20
-    
-    # Calculate XP gain with rarity bonus and ability bonus
-    base_xp = random.randint(50, 100)
-    rarity_bonus = RARITY_INFO[target_pet["rarity"]]["xp_bonus"]
-    
-    # Apply rarity ability bonus
-    rarity = target_pet.get("rarity", "common")
-    ability = RARITY_ABILITIES.get(rarity, {})
-    train_mult = ability.get("train_xp_mult", 1.0)
-    mythical_mult = ability.get("xp_mult", 1.0)
-    
-    xp_gain = int(base_xp * rarity_bonus * train_mult * mythical_mult)
-    
-    target_pet["xp"] += xp_gain
-    if "total_xp" not in target_pet:
-        target_pet["total_xp"] = 0
-    target_pet["total_xp"] += xp_gain
-    target_pet["last_trained"] = datetime.utcnow().isoformat()
-    
-    # Increment counter
-    if "times_trained" not in target_pet:
-        target_pet["times_trained"] = 0
-    target_pet["times_trained"] += 1
-    
-    # Check for level up
-    old_level = target_pet["level"]
-    while target_pet["xp"] >= xp_for_next_level(target_pet["level"]):
-        target_pet["xp"] -= xp_for_next_level(target_pet["level"])
-        target_pet["level"] += 1
-    
-    # Check for evolution
-    check_evolution(target_pet)
-    
-    # Check achievements
-    check_and_award_achievements(target_pet)
-    
-    save_pets(pets)
-    return (xp_gain, target_pet["level"], old_level)
-
-def xp_for_next_level(level):
-    """Calculate XP needed for next level"""
-    return 100 * level
-
-def can_battle(user_id, pet_name=None):
-    """Check if user can battle"""
-    if pet_name:
-        pet = get_user_pet_by_name(user_id, pet_name)
-    else:
-        user_pets = get_user_pets(user_id)
-        pet = user_pets[0] if user_pets else None
-    
-    if not pet or not pet.get("last_battled"):
-        return True
-    
-    last_battled = datetime.fromisoformat(pet["last_battled"])
-    return datetime.utcnow() - last_battled >= timedelta(hours=3)
-
-def battle_pets(user1_id, user2_id, pet1_name=None, pet2_name=None):
-    """Battle two pets with type advantages, mood, and critical hits"""
-    pets = load_pets()
-    user1_str = str(user1_id)
-    user2_str = str(user2_id)
-    
-    if user1_str not in pets or user2_str not in pets:
-        return None
-    
-    # Get user pets
-    user1_pets = pets[user1_str]
-    user2_pets = pets[user2_str]
-    
-    if isinstance(user1_pets, dict):
-        user1_pets = [user1_pets]
-        pets[user1_str] = user1_pets
-    if isinstance(user2_pets, dict):
-        user2_pets = [user2_pets]
-        pets[user2_str] = user2_pets
-    
-    # Find the pets to battle
-    pet1 = None
-    if pet1_name:
-        pet1_name_lower = pet1_name.lower()
-        for pet in user1_pets:
-            pet_info = PET_TYPES.get(pet["type"])
-            # Check both pet type name and nickname
-            if pet_info and pet_info["name"].lower() == pet1_name_lower:
-                pet1 = pet
-                break
-            # Also check nickname if it exists
-            if pet.get("nickname") and pet["nickname"].lower() == pet1_name_lower:
-                pet1 = pet
-                break
-    else:
-        pet1 = user1_pets[0] if user1_pets else None
-    
-    pet2 = None
-    if pet2_name:
-        pet2_name_lower = pet2_name.lower()
-        for pet in user2_pets:
-            pet_info = PET_TYPES.get(pet["type"])
-            # Check both pet type name and nickname
-            if pet_info and pet_info["name"].lower() == pet2_name_lower:
-                pet2 = pet
-                break
-            # Also check nickname if it exists
-            if pet.get("nickname") and pet["nickname"].lower() == pet2_name_lower:
-                pet2 = pet
-                break
-    else:
-        pet2 = user2_pets[0] if user2_pets else None
-    
-    if not pet1 or not pet2:
-        return None
-    
-    # Calculate battle power with all bonuses
-    def get_power(pet):
-        base_power = pet["level"] * 10
-        stat_bonus = RARITY_INFO[pet["rarity"]]["stat_bonus"]
-        energy_mult = pet["energy"] / 100
-        
-        # Apply evolution bonus
-        evo_level = pet.get("evolution_level", 0)
-        evo_bonus = 1.0 + (evo_level * 0.2)  # +20% per evolution
-        
-        # Apply mood multiplier
-        mood = get_pet_mood(pet)
-        mood_mult = MOODS[mood]["battle_mult"]
-        
-        # Apply shiny bonus
-        shiny_mult = SHINY_STAT_BONUS if pet.get("is_shiny", False) else 1.0
-        
-        return int(base_power * stat_bonus * energy_mult * evo_bonus * mood_mult * shiny_mult)
-    
-    power1 = get_power(pet1) + random.randint(-10, 10)
-    power2 = get_power(pet2) + random.randint(-10, 10)
-    
-    # Check for type advantage
-    type_advantage_1 = False
-    type_advantage_2 = False
-    if pet2["type"] in TYPE_ADVANTAGES.get(pet1["type"], []):
-        power1 = int(power1 * 1.3)
-        type_advantage_1 = True
-    if pet1["type"] in TYPE_ADVANTAGES.get(pet2["type"], []):
-        power2 = int(power2 * 1.3)
-        type_advantage_2 = True
-    
-    # Check for critical hits (15% chance if happiness > 80)
-    crit1 = False
-    crit2 = False
-    if pet1["happiness"] > 80 and random.random() < 0.15:
-        power1 = int(power1 * 1.5)
-        crit1 = True
-    if pet2["happiness"] > 80 and random.random() < 0.15:
-        power2 = int(power2 * 1.5)
-        crit2 = True
-    
-    # Determine winner
-    winner_pet = pet1 if power1 > power2 else pet2
-    loser_pet = pet2 if winner_pet == pet1 else pet1
-    winner_id = user1_str if winner_pet == pet1 else user2_str
-    loser_id = user2_str if winner_id == user1_str else user1_str
-    
-    # Initialize battle stats if not present
-    for pet in [pet1, pet2]:
-        if "battle_wins" not in pet:
-            pet["battle_wins"] = 0
-        if "battle_losses" not in pet:
-            pet["battle_losses"] = 0
-        if "battle_streak" not in pet:
-            pet["battle_streak"] = 0
-    
-    # Update battle stats
-    winner_pet["battle_wins"] += 1
-    winner_pet["battle_streak"] += 1
-    loser_pet["battle_losses"] += 1
-    loser_pet["battle_streak"] = 0  # Reset streak
-    
-    # Calculate XP gain with bonuses
-    base_xp = 100
-    rarity_bonus = RARITY_INFO[winner_pet["rarity"]]["xp_bonus"]
-    
-    # Apply rarity ability bonuses
-    rarity = winner_pet.get("rarity", "common")
-    ability = RARITY_ABILITIES.get(rarity, {})
-    battle_xp_mult = ability.get("battle_xp_mult", 1.0)
-    mythical_mult = ability.get("xp_mult", 1.0)
-    
-    # Streak bonus (+10 XP per streak level, max 100)
-    streak_bonus = min(winner_pet["battle_streak"] * 10, 100)
-    
-    xp_gain = int((base_xp + streak_bonus) * rarity_bonus * battle_xp_mult * mythical_mult)
-    
-    winner_pet["xp"] += xp_gain
-    if "total_xp" not in winner_pet:
-        winner_pet["total_xp"] = 0
-    winner_pet["total_xp"] += xp_gain
-    
-    winner_pet["last_battled"] = datetime.utcnow().isoformat()
-    loser_pet["last_battled"] = datetime.utcnow().isoformat()
-    
-    # Check for level up
-    old_level = winner_pet["level"]
-    while winner_pet["xp"] >= xp_for_next_level(winner_pet["level"]):
-        winner_pet["xp"] -= xp_for_next_level(winner_pet["level"])
-        winner_pet["level"] += 1
-    
-    # Check for evolution
-    evolved = check_evolution(winner_pet)
-    
-    # Check achievements
-    check_and_award_achievements(winner_pet, action="battle_won")
-    
-    save_pets(pets)
-    
-    return {
-        "winner_id": winner_id,
-        "loser_id": loser_id,
-        "power1": power1,
-        "power2": power2,
-        "xp_gain": xp_gain,
-        "new_level": winner_pet["level"],
-        "old_level": old_level,
-        "pet1_type": pet1["type"],
-        "pet2_type": pet2["type"],
-        "type_advantage_1": type_advantage_1,
-        "type_advantage_2": type_advantage_2,
-        "crit1": crit1,
-        "crit2": crit2,
-        "evolved": evolved,
-        "streak": winner_pet["battle_streak"],
-        "mood1": get_pet_mood(pet1),
-        "mood2": get_pet_mood(pet2)
-    }
-
-def get_pet_leaderboard(limit=10):
-    """Get top pets by level"""
-    pets = load_pets()
-    
-    # Flatten all pets from all users
-    all_pets = []
-    for user_id, user_pets in pets.items():
-        # Handle both old and new format
-        if isinstance(user_pets, dict):
-            all_pets.append((user_id, user_pets))
-        elif isinstance(user_pets, list):
-            for pet in user_pets:
-                all_pets.append((user_id, pet))
-    
-    # Sort by level and XP
-    sorted_pets = sorted(
-        all_pets,
-        key=lambda x: (x[1]["level"], x[1]["xp"]),
-        reverse=True
-    )
-    
-    return sorted_pets[:limit]
-
-def set_spawn_channel(guild_id, channel_id):
-    """Set spawn channel for guild"""
-    spawns = load_spawns()
-    spawns[str(guild_id)] = {
-        "channel_id": str(channel_id),
-        "last_spawn": None,
-        "current_spawn": None
-    }
-    save_spawns(spawns)
-
-def get_spawn_channel(guild_id):
-    """Get spawn channel for guild"""
-    spawns = load_spawns()
-    return spawns.get(str(guild_id))
-
-def create_spawn(guild_id):
-    """Create a new pet spawn with chance for shiny"""
-    spawns = load_spawns()
-    guild_str = str(guild_id)
-    
-    if guild_str in spawns:
-        pet_type = get_random_pet()
-        
-        # Check for shiny (1% chance)
-        is_shiny = random.random() < SHINY_CHANCE
-        
-        spawns[guild_str]["current_spawn"] = pet_type
-        spawns[guild_str]["is_shiny"] = is_shiny
-        spawns[guild_str]["last_spawn"] = datetime.utcnow().isoformat()
-        save_spawns(spawns)
-        return {"pet_type": pet_type, "is_shiny": is_shiny}
-    
-    return None
-
-def clear_spawn(guild_id):
-    """Clear current spawn"""
-    spawns = load_spawns()
-    guild_str = str(guild_id)
-    
-    if guild_str in spawns:
-        spawns[guild_str]["current_spawn"] = None
-        spawns[guild_str]["is_shiny"] = False
-        save_spawns(spawns)
-
-def get_current_spawn(guild_id):
-    """Get current spawn for guild"""
-    spawns = load_spawns()
-    guild_data = spawns.get(str(guild_id))
-    if guild_data:
-        pet_type = guild_data.get("current_spawn")
-        is_shiny = guild_data.get("is_shiny", False)
-        if pet_type:
-            return {"pet_type": pet_type, "is_shiny": is_shiny}
-    return None
-
-def set_pet_nickname(user_id, pet_name, nickname):
-    """Set a nickname for a pet"""
-    pets = load_pets()
-    user_id_str = str(user_id)
-    
-    if user_id_str not in pets:
-        return {"status": "no_pets"}
-    
-    user_pets = pets[user_id_str]
-    if isinstance(user_pets, dict):
-        user_pets = [user_pets]
-        pets[user_id_str] = user_pets
-    
-    # Find the pet
-    pet_name_lower = pet_name.lower()
-    target_pet = None
-    
+async def refill_all_pets(user_id):
+    user_pets = await get_user_pets(user_id)
+    now_dt = datetime.now(UTC)
+    now = now_dt.isoformat()
     for pet in user_pets:
-        pet_info = PET_TYPES.get(pet["type"])
-        if pet_info and pet_info["name"].lower() == pet_name_lower:
-            target_pet = pet
-            break
-    
-    if not target_pet:
-        return {"status": "not_found", "pet_name": pet_name}
-    
-    # Set nickname (or clear if None/empty)
-    target_pet["nickname"] = nickname if nickname and nickname.strip() else None
-    save_pets(pets)
-    
-    return {
-        "status": "success",
-        "pet": target_pet,
-        "nickname": target_pet["nickname"]
-    }
+        for s in ["hunger", "happiness", "energy"]: pet[s] = 100
+        pet["last_fed"] = pet["last_played"] = pet["last_updated"] = now
+        pet["times_fed"] = pet.get("times_fed", 0) + 1
+        check_and_award_achievements(pet)
+    await save_pets_data(user_id, user_pets)
+    await raven_db.save_document(f"{REFILLS_PREFIX}/{user_id}", {'last_refill': now})
+    return user_pets
 
-# UI Helper Functions
+async def train_pet(user_id, pet_name=None):
+    user_pets = await load_pets_data(user_id)
+    target = None
+    if pet_name: target = await get_user_pet_by_name(user_id, pet_name)
+    else: target = user_pets[0] if user_pets else None
+    
+    if not target or target["energy"] < 20: return None
+    target["energy"] -= 20
+    rarity = target.get("rarity", "common")
+    ability = RARITY_ABILITIES.get(rarity, {})
+    xp_gain = int(random.randint(50, 100) * RARITY_INFO[rarity]["xp_bonus"] * ability.get("train_xp_mult", 1.0) * ability.get("xp_mult", 1.0))
+    
+    target["xp"] += xp_gain
+    target["total_xp"] = target.get("total_xp", 0) + xp_gain
+    target["last_trained"] = datetime.now(UTC).isoformat()
+    target["times_trained"] = target.get("times_trained", 0) + 1
+    
+    old_lv = target["level"]
+    while target["xp"] >= xp_for_next_level(target["level"]):
+        target["xp"] -= xp_for_next_level(target["level"]); target["level"] += 1
+    check_evolution(target); check_and_award_achievements(target)
+    await save_pets_data(user_id, user_pets)
+    return (xp_gain, target["level"], old_lv)
 
-def create_progress_bar(current, maximum, length=10):
-    """Create a visual progress bar"""
-    if maximum == 0:
-        return "▱" * length
-    filled = int((current / maximum) * length)
-    return "▰" * filled + "▱" * (length - filled)
+def xp_for_next_level(level): return 100 * level
 
-def format_time_remaining(seconds):
-    """Format seconds into human-readable time"""
-    if seconds <= 0:
-        return "Available now"
+async def battle_pets(u1, u2, n1=None, n2=None):
+    p1s = await load_pets_data(u1); p2s = await load_pets_data(u2)
+    pet1 = await get_user_pet_by_name(u1, n1) if n1 else (p1s[0] if p1s else None)
+    pet2 = await get_user_pet_by_name(u2, n2) if n2 else (p2s[0] if p2s else None)
+    if not pet1 or not pet2: return None
     
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
+    def gp(p):
+        evo = 1.0 + (p.get("evolution_level", 0) * 0.2)
+        mood = MOODS[get_pet_mood(p)]["battle_mult"]
+        shiny = SHINY_STAT_BONUS if p.get("is_shiny", False) else 1.0
+        return int(p["level"] * 10 * RARITY_INFO[p["rarity"]]["stat_bonus"] * (p["energy"]/100) * evo * mood * shiny)
     
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    elif minutes > 0:
-        return f"{minutes}m"
-    else:
-        return "<1m"
+    pw1 = gp(pet1) + random.randint(-10, 10); pw2 = gp(pet2) + random.randint(-10, 10)
+    adv1 = pet2["type"] in TYPE_ADVANTAGES.get(pet1["type"], []); adv2 = pet1["type"] in TYPE_ADVANTAGES.get(pet2["type"], [])
+    if adv1: pw1 = int(pw1 * 1.3); 
+    if adv2: pw2 = int(pw2 * 1.3)
+    
+    cr1 = pet1["happiness"] > 80 and random.random() < 0.15; cr2 = pet2["happiness"] > 80 and random.random() < 0.15
+    if cr1: pw1 = int(pw1 * 1.5); 
+    if cr2: pw2 = int(pw2 * 1.5)
+    
+    win = pet1 if pw1 > pw2 else pet2; los = pet2 if win == pet1 else pet1
+    for p in [pet1, pet2]:
+        for k in ["wins", "losses", "streak"]:
+            key = f"battle_{k}"
+            if key not in p: p[key] = 0
+            
+    win["battle_wins"] += 1; win["battle_streak"] += 1; los["battle_losses"] += 1; los["battle_streak"] = 0
+    ability = RARITY_ABILITIES.get(win.get("rarity", "common"), {})
+    xp = int((100 + min(win["battle_streak"]*10, 100)) * RARITY_INFO[win["rarity"]]["xp_bonus"] * ability.get("battle_xp_mult", 1.0) * ability.get("xp_mult", 1.0))
+    win["xp"] += xp; win["total_xp"] = win.get("total_xp", 0) + xp
+    win["last_battled"] = los["last_battled"] = datetime.now(UTC).isoformat()
+    
+    old_lv = win["level"]
+    while win["xp"] >= xp_for_next_level(win["level"]):
+        win["xp"] -= xp_for_next_level(win["level"]); win["level"] += 1
+    evo_done = check_evolution(win); check_and_award_achievements(win, "battle_won")
+    await save_pets_data(u1, p1s); await save_pets_data(u2, p2s)
+    return {"winner_id": str(u1 if win==pet1 else u2), "loser_id": str(u2 if win==pet1 else u1), "power1": pw1, "power2": pw2, "xp_gain": xp, "new_level": win["level"], "old_level": old_lv, "evolved": evo_done}
 
-def get_cooldown_info(last_action_iso, cooldown_hours):
-    """Get cooldown information for an action"""
-    if not last_action_iso:
-        return {"ready": True, "remaining": "Available now"}
+async def get_pet_leaderboard(limit=10):
+    all_user_docs = await raven_db.get_all_in_collection(PETS_PREFIX, limit=500)
     
-    last_action = datetime.fromisoformat(last_action_iso)
-    time_since = datetime.utcnow() - last_action
-    cooldown_delta = timedelta(hours=cooldown_hours)
+    flattened_pets = []
+    for doc in all_user_docs:
+        uid = doc['@metadata']['@id'].split('/')[-1]
+        for pet in doc.get('pets', []):
+            flattened_pets.append((uid, pet))
     
-    if time_since >= cooldown_delta:
-        return {"ready": True, "remaining": "Available now"}
-    
-    remaining_seconds = (cooldown_delta - time_since).total_seconds()
-    return {
-        "ready": False,
-        "remaining": format_time_remaining(remaining_seconds)
-    }
+    flattened_pets.sort(key=lambda x: (x[1].get('level', 1), x[1].get('total_xp', 0)), reverse=True)
+    return flattened_pets[:limit]
 
-def get_stat_color_indicator(value):
-    """Get color indicator emoji for stat value"""
-    if value >= 70:
-        return "🟢"  # Green
-    elif value >= 40:
-        return "🟡"  # Yellow
-    else:
-        return "🔴"  # Red
+async def set_spawn_channel(gid, cid):
+    doc_id = f"{SPAWNS_PREFIX}/{gid}"
+    data = await raven_db.load_document(doc_id) or {}
+    data.update({'channel_id': str(cid), 'last_spawn': None, 'current_spawn': None})
+    await raven_db.save_document(doc_id, data)
+
+async def get_spawn_channel(gid):
+    return await raven_db.load_document(f"{SPAWNS_PREFIX}/{gid}")
+
+async def create_spawn(gid):
+    pet_type = get_random_pet(); is_shiny = random.random() < SHINY_CHANCE
+    doc_id = f"{SPAWNS_PREFIX}/{gid}"
+    data = await raven_db.load_document(doc_id) or {}
+    data.update({
+        'current_spawn': pet_type,
+        'is_shiny': is_shiny,
+        'last_spawn': datetime.now(UTC).isoformat()
+    })
+    await raven_db.save_document(doc_id, data)
+    return {"pet_type": pet_type, "is_shiny": is_shiny}
+
+async def clear_spawn(gid):
+    doc_id = f"{SPAWNS_PREFIX}/{gid}"
+    await raven_db.patch_document(doc_id, {'current_spawn': None, 'is_shiny': False})
+
+async def get_current_spawn(gid):
+    data = await raven_db.load_document(f"{SPAWNS_PREFIX}/{gid}")
+    if data and data.get("current_spawn"): return {"pet_type": data["current_spawn"], "is_shiny": data.get("is_shiny", False)}
+    return None
+
+async def set_pet_nickname(uid, name, nick):
+    pets = await load_pets_data(uid)
+    name_l = name.lower()
+    target = None
+    for p in pets:
+        info = PET_TYPES.get(p["type"])
+        if (info and info["name"].lower() == name_l) or (p.get("nickname", "").lower() == name_l):
+            target = p; break
+    if not target: return {"status": "not_found", "pet_name": name}
+    target["nickname"] = nick if nick and nick.strip() else None
+    await save_pets_data(uid, pets)
+    return {"status": "success", "pet": target, "nickname": target["nickname"]}
+
+def create_progress_bar(c, m, l=10):
+    if m == 0: return "▱" * l
+    f = int((c / m) * l); return "▰" * f + "▱" * (l - f)
+
+def format_time_remaining(s):
+    if s <= 0: return "Available now"
+    h = int(s // 3600); m = int((s % 3600) // 60)
+    return f"{h}h {m}m" if h > 0 else (f"{m}m" if m > 0 else "<1m")
+
+def get_cooldown_info(last_iso, cd_h):
+    if not last_iso: return {"ready": True, "remaining": "Available now"}
+    since = datetime.now(UTC) - datetime.fromisoformat(last_iso)
+    if since >= timedelta(hours=cd_h): return {"ready": True, "remaining": "Available now"}
+    rem = (timedelta(hours=cd_h) - since).total_seconds()
+    return {"ready": False, "remaining": format_time_remaining(rem)}
+
+def get_stat_color_indicator(v):
+    if v >= 70: return "🟢"
+    if v >= 40: return "🟡"
+    return "🔴"

@@ -19,7 +19,7 @@ from .pets_utils import (
     set_spawn_channel, get_spawn_channel, create_spawn, clear_spawn, get_current_spawn,
     get_pet_mood, get_pet_display_name, get_evolution_stars, set_pet_nickname,
     create_progress_bar, format_time_remaining, get_cooldown_info, get_stat_color_indicator,
-    can_user_spawn, record_user_spawn
+    can_user_spawn, record_user_spawn, can_refill_all, refill_all_pets
 )
 
 
@@ -74,7 +74,7 @@ class Pets(commands.Cog):
         await interaction.response.defer()
         
         # Check if there's a spawn
-        current_spawn = get_current_spawn(interaction.guild_id)
+        current_spawn = await get_current_spawn(interaction.guild_id)
         
         if not current_spawn:
             await interaction.followup.send("❌ No pet is currently spawned!", ephemeral=True)
@@ -86,15 +86,15 @@ class Pets(commands.Cog):
         
         # Attempt to create/level up pet
         pet_info = PET_TYPES[pet_type]
-        result = create_pet(interaction.user.id, pet_type, is_shiny=is_shiny, nickname=nickname)
+        result = await create_pet(interaction.user.id, pet_type, is_shiny=is_shiny, nickname=nickname)
         
         # Handle different outcomes
         if result["status"] == "new":
             # New pet caught
-            clear_spawn(interaction.guild_id)
+            await clear_spawn(interaction.guild_id)
             rarity_color = RARITY_INFO[pet_info["rarity"]]["color"]
             
-            user_pets = get_user_pets(interaction.user.id)
+            user_pets = await get_user_pets(interaction.user.id)
             
             pet_name_display = f"{nickname} ({pet_info['name']})" if nickname else pet_info['name']
             
@@ -118,7 +118,7 @@ class Pets(commands.Cog):
         
         elif result["status"] == "leveled_up":
             # Duplicate pet - leveled up
-            clear_spawn(interaction.guild_id)
+            await clear_spawn(interaction.guild_id)
             pet = result["pet"]
             old_level = result["old_level"]
             xp_gained = result["xp_gained"]
@@ -172,20 +172,20 @@ class Pets(commands.Cog):
     )
     async def rename(self, interaction: discord.Interaction, pet_name: str, new_nickname: str):
         """Rename a pet"""
-        user_pets = get_user_pets(interaction.user.id)
+        user_pets = await get_user_pets(interaction.user.id)
         
         if not user_pets:
             await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
             return
         
         # Find the pet
-        pet = get_user_pet_by_name(interaction.user.id, pet_name)
+        pet = await get_user_pet_by_name(interaction.user.id, pet_name)
         if not pet:
             await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
             return
         
         # Update nickname
-        set_pet_nickname(interaction.user.id, pet_name, new_nickname)
+        await set_pet_nickname(interaction.user.id, pet_name, new_nickname)
         pet_info = PET_TYPES.get(pet["type"])
         
         if not pet_info:
@@ -235,7 +235,7 @@ class Pets(commands.Cog):
     @app_commands.describe(pet_name="Name of specific pet to view (optional)")
     async def pet(self, interaction: discord.Interaction, pet_name: str = None):
         """View pet status"""
-        user_pets = get_user_pets(interaction.user.id)
+        user_pets = await get_user_pets(interaction.user.id)
         
         if not user_pets:
             await interaction.response.send_message("❌ You don't have any pets! Wait for one to spawn and use `/catch`.", ephemeral=True)
@@ -243,7 +243,7 @@ class Pets(commands.Cog):
         
         # If pet_name specified, show that specific pet
         if pet_name:
-            pet = get_user_pet_by_name(interaction.user.id, pet_name)
+            pet = await get_user_pet_by_name(interaction.user.id, pet_name)
             
             if not pet:
                 await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
@@ -331,20 +331,20 @@ class Pets(commands.Cog):
     @app_commands.describe(pet_name="Name of the pet to remove")
     async def removepet(self, interaction: discord.Interaction, pet_name: str):
         """Remove a pet"""
-        user_pets = get_user_pets(interaction.user.id)
+        user_pets = await get_user_pets(interaction.user.id)
         
         if not user_pets:
             await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
             return
         
         # Check if pet exists
-        pet = get_user_pet_by_name(interaction.user.id, pet_name)
+        pet = await get_user_pet_by_name(interaction.user.id, pet_name)
         if not pet:
             await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
             return
         
         # Remove the pet
-        result = remove_pet(interaction.user.id, pet_name)
+        result = await remove_pet(interaction.user.id, pet_name)
         
         if result["status"] == "removed":
             removed_pet = result["pet"]
@@ -365,7 +365,7 @@ class Pets(commands.Cog):
             embed.add_field(name="Level", value=str(removed_pet["level"]), inline=True)
             embed.add_field(name="Rarity", value=removed_pet["rarity"].title(), inline=True)
             
-            remaining_pets = get_user_pets(interaction.user.id)
+            remaining_pets = await get_user_pets(interaction.user.id)
             embed.set_footer(text=f"You now have {len(remaining_pets)}/{MAX_PETS} pets")
             
             await interaction.response.send_message(embed=embed)
@@ -381,7 +381,7 @@ class Pets(commands.Cog):
             await interaction.response.send_message("❌ Economy system not available!", ephemeral=True)
             return
         
-        user_pets = get_user_pets(interaction.user.id)
+        user_pets = await get_user_pets(interaction.user.id)
         if not user_pets:
             await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
             return
@@ -396,9 +396,8 @@ class Pets(commands.Cog):
             )
             return
         
-        # Get the pet
         if pet_name:
-            pet = get_user_pet_by_name(interaction.user.id, pet_name)
+            pet = await get_user_pet_by_name(interaction.user.id, pet_name)
             if not pet:
                 await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
                 return
@@ -413,7 +412,7 @@ class Pets(commands.Cog):
         display_name = get_pet_display_name(pet)
         check_name = pet_name if pet_name else pet_info["name"]
         
-        if not can_feed(interaction.user.id, check_name):
+        if not await can_feed(interaction.user.id, check_name):
              await interaction.response.send_message(f"❌ You can only feed **{display_name}** once per hour!", ephemeral=True)
              return
         
@@ -425,7 +424,7 @@ class Pets(commands.Cog):
         
         # Deduct cost and feed
         await remove_balance(interaction.user.id, cost)
-        new_hunger = feed_pet(interaction.user.id, check_name)
+        new_hunger = await feed_pet(interaction.user.id, check_name)
         
         embed = discord.Embed(
             title=f"🍖 Fed {display_name}!",
@@ -444,7 +443,7 @@ class Pets(commands.Cog):
             await interaction.response.send_message("❌ Economy system not available!", ephemeral=True)
             return
         
-        user_pets = get_user_pets(interaction.user.id)
+        user_pets = await get_user_pets(interaction.user.id)
         if not user_pets:
             await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
             return
@@ -459,9 +458,8 @@ class Pets(commands.Cog):
             )
             return
         
-        # Get the pet
         if pet_name:
-            pet = get_user_pet_by_name(interaction.user.id, pet_name)
+            pet = await get_user_pet_by_name(interaction.user.id, pet_name)
             if not pet:
                 await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
                 return
@@ -476,7 +474,7 @@ class Pets(commands.Cog):
         display_name = get_pet_display_name(pet)
         check_name = pet_name if pet_name else pet_info["name"]
         
-        if not can_play(interaction.user.id, check_name):
+        if not await can_play(interaction.user.id, check_name):
             await interaction.response.send_message(f"❌ You can only play with **{display_name}** once per hour!", ephemeral=True)
             return
         
@@ -488,7 +486,7 @@ class Pets(commands.Cog):
         
         # Deduct cost and play
         await remove_balance(interaction.user.id, cost)
-        new_happiness = play_with_pet(interaction.user.id, check_name)
+        new_happiness = await play_with_pet(interaction.user.id, check_name)
         
         embed = discord.Embed(
             title=f"🎾 Played with {display_name}!",
@@ -499,11 +497,50 @@ class Pets(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
     
+    @app_commands.command(name="refill", description="Fully restore hunger, happiness, and energy for ALL your pets (24h cooldown)")
+    async def refill(self, interaction: discord.Interaction):
+        """Bulk refill all pets stats"""
+        user_pets = await get_user_pets(interaction.user.id)
+        if not user_pets:
+            await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
+            return
+            
+        # Check cooldown
+        can_refill, remaining = await can_refill_all(interaction.user.id)
+        if not can_refill:
+            time_str = format_time_remaining(remaining)
+            await interaction.response.send_message(f"❌ You are on cooldown! You can use `/refill` again in **{time_str}**.", ephemeral=True)
+            return
+            
+        # Refill all
+        refilled_pets = await refill_all_pets(interaction.user.id)
+        
+        embed = discord.Embed(
+            title="🪄 Magical Refill! 🪄",
+            description=f"All of your pets has been fully restored to 100% stats!",
+            color=discord.Color.gold()
+        )
+        
+        for pet in refilled_pets:
+            display_name = get_pet_display_name(pet)
+            pet_info = PET_TYPES.get(pet["type"])
+            emoji = pet_info["emoji"] if pet_info else "🐾"
+            
+            embed.add_field(
+                name=f"{emoji} {display_name}",
+                value="🍖 Hunger: 100%\n😊 Happiness: 100%\n⚡ Energy: 100%",
+                inline=True
+            )
+            
+        embed.set_footer(text="Your pets are happy and full of energy! ✨")
+        
+        await interaction.response.send_message(embed=embed)
+    
     @app_commands.command(name="train", description="Train your pet to gain XP")
     @app_commands.describe(pet_name="Name of the pet to train (required if you have multiple pets)")
     async def train(self, interaction: discord.Interaction, pet_name: str = None):
         """Train pet"""
-        user_pets = get_user_pets(interaction.user.id)
+        user_pets = await get_user_pets(interaction.user.id)
         if not user_pets:
             await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
             return
@@ -518,9 +555,8 @@ class Pets(commands.Cog):
             )
             return
         
-        # Get the pet
         if pet_name:
-            pet = get_user_pet_by_name(interaction.user.id, pet_name)
+            pet = await get_user_pet_by_name(interaction.user.id, pet_name)
             if not pet:
                 await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
                 return
@@ -535,7 +571,7 @@ class Pets(commands.Cog):
         display_name = get_pet_display_name(pet)
         check_name = pet_name if pet_name else pet_info["name"]
         
-        if not can_train(interaction.user.id, check_name):
+        if not await can_train(interaction.user.id, check_name):
             if pet["energy"] < 20:
                 await interaction.response.send_message(f"❌ **{display_name}** doesn't have enough energy (need 20)!", ephemeral=True)
             else:
@@ -543,7 +579,7 @@ class Pets(commands.Cog):
             return
         
         # Train
-        result = train_pet(interaction.user.id, check_name)
+        result = await train_pet(interaction.user.id, check_name)
         if not result:
             await interaction.response.send_message("❌ Failed to train pet!", ephemeral=True)
             return
@@ -577,8 +613,8 @@ class Pets(commands.Cog):
             return
         
         # Check both have pets
-        user1_pets = get_user_pets(interaction.user.id)
-        user2_pets = get_user_pets(user.id)
+        user1_pets = await get_user_pets(interaction.user.id)
+        user2_pets = await get_user_pets(user.id)
         
         if not user1_pets:
             await interaction.response.send_message("❌ You don't have any pets!", ephemeral=True)
@@ -600,7 +636,7 @@ class Pets(commands.Cog):
         
         # Get user's pet
         if pet_name:
-            pet1 = get_user_pet_by_name(interaction.user.id, pet_name)
+            pet1 = await get_user_pet_by_name(interaction.user.id, pet_name)
             if not pet1:
                 await interaction.response.send_message(f"❌ You don't have a pet named **{pet_name}**!", ephemeral=True)
                 return
@@ -622,7 +658,7 @@ class Pets(commands.Cog):
         check_name = pet_name if pet_name else pet1_info["name"]
         
         # Check cooldown
-        if not can_battle(interaction.user.id, check_name):
+        if not await can_battle(interaction.user.id, check_name):
             await interaction.response.send_message(f"❌ Your {pet1_info['name']} can only battle once every 3 hours!", ephemeral=True)
             return
         
@@ -685,7 +721,7 @@ class Pets(commands.Cog):
     @app_commands.command(name="petleaderboard", description="View top pets by level")
     async def petleaderboard(self, interaction: discord.Interaction):
         """Display pet leaderboard"""
-        leaderboard = get_pet_leaderboard(10)
+        leaderboard = await get_pet_leaderboard(10)
         
         if not leaderboard:
             await interaction.response.send_message("❌ No pets found!", ephemeral=True)
@@ -725,7 +761,7 @@ class Pets(commands.Cog):
     @app_commands.describe(channel="Channel where pets will spawn")
     async def setspawn(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Set spawn channel"""
-        set_spawn_channel(interaction.guild_id, channel.id)
+        await set_spawn_channel(interaction.guild_id, channel.id)
         
         embed = discord.Embed(
             title="✅ Spawn Channel Set",
@@ -737,7 +773,7 @@ class Pets(commands.Cog):
         await interaction.response.send_message(embed=embed)
         
         # Trigger immediate spawn
-        spawn_data = create_spawn(interaction.guild_id)
+        spawn_data = await create_spawn(interaction.guild.id)
         if spawn_data:
             pet_type = spawn_data["pet_type"]
             is_shiny = spawn_data["is_shiny"]
@@ -762,7 +798,7 @@ class Pets(commands.Cog):
     async def spawn(self, interaction: discord.Interaction):
         """Spawn a wild pet"""
         # Check if channel is the spawn channel
-        spawn_channel_data = get_spawn_channel(interaction.guild_id)
+        spawn_channel_data = await get_spawn_channel(interaction.guild_id)
         if not spawn_channel_data or str(interaction.channel_id) != spawn_channel_data.get("channel_id"):
             # Get the correct channel mention if set
             channel_mention = "unknown channel"
@@ -777,19 +813,19 @@ class Pets(commands.Cog):
 
 
         # Check cooldown
-        can_spawn, remaining = can_user_spawn(interaction.user.id)
+        can_spawn, remaining = await can_user_spawn(interaction.user.id)
         if not can_spawn:
             time_str = format_time_remaining(remaining)
             await interaction.response.send_message(f"❌ You are on cooldown! You can spawn again in **{time_str}**.\n(Limit: 3 spawns per 4 hours)", ephemeral=True)
             return
 
         # Spawn the pet
-        spawn_data = create_spawn(interaction.guild_id)
+        spawn_data = await create_spawn(interaction.guild_id)
         if not spawn_data:
             await interaction.response.send_message("❌ Failed to spawn pet!", ephemeral=True)
             return
         
-        record_user_spawn(interaction.user.id)
+        await record_user_spawn(interaction.user.id)
         
         # Create spawn embed
         pet_type = spawn_data["pet_type"]

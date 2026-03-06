@@ -6,6 +6,7 @@ import random
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
+from cogs.utils.ravendb_manager import raven_db
 
 # Setup logging with UTF-8 encoding for Windows
 logging.basicConfig(
@@ -32,8 +33,20 @@ if not TOKEN:
     sys.exit(1)
 
 # Bot setup
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!', intents=intents)
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True
+# Disabled presences to save RAM (reduces user cache size)
+intents.presences = False
+
+bot = commands.Bot(
+    command_prefix='!', 
+    intents=intents,
+    # Aggressive RAM Optimization
+    member_cache_flags=discord.MemberCacheFlags.none(), # Disable member cache
+    chunk_guilds_at_startup=False,                      # Don't load all members on boot
+    max_messages=100                                    # Reduce message cache (default 5000)
+)
 
 
 async def load_cogs():
@@ -113,8 +126,29 @@ async def on_command_error(ctx, error):
         logger.error(f"Unhandled error: {error}")
 
 
+async def handle_ping(request):
+    """Simple ping handler for UptimeRobot"""
+    return web.Response(text="Bot is alive!", status=200)
+
+async def start_web_server():
+    """Start a simple web server for UptimeRobot pings"""
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render provides PORT environment variable
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Web server started on port {port}")
+
 async def main():
     """Main function to start the bot"""
+    # Start web server in the background
+    import asyncio
+    asyncio.create_task(start_web_server())
+    
     async with bot:
         await load_cogs()
         await bot.start(TOKEN)

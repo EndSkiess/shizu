@@ -1,15 +1,115 @@
 """
 Welcome and Goodbye system - Send messages when members join or leave
+Refactored to use MongoDB for data persistence
 """
 import discord
 from discord.ext import commands
-from discord import app_commands
-import json
-from pathlib import Path
+from discord import app_commands, ui
 import re
 import logging
+from ..utils.ravendb_manager import raven_db
 
 logger = logging.getLogger('DiscordBot.Welcome')
+
+WELCOME_PREFIX = "welcome"
+
+class WelcomeEmbedModal(ui.Modal):
+    """Modal for custom welcome/goodbye embed configuration"""
+    
+    def __init__(self, title_text, config_type, channel_id, current_data=None):
+        super().__init__(title=title_text)
+        self.config_type = config_type
+        self.channel_id = channel_id
+        
+        # Populate with current data if available
+        current = current_data or {}
+        
+        self.embed_title = ui.TextInput(
+            label="Embed Title",
+            placeholder="Welcome to our server!",
+            default=current.get("title", ""),
+            required=False,
+            max_length=256
+        )
+        self.description = ui.TextInput(
+            label="Embed Description",
+            style=discord.TextStyle.paragraph,
+            placeholder="Welcome {user-mention} to {guild}! You are member #{member-count}.",
+            default=current.get("description", ""),
+            required=True,
+            max_length=4000
+        )
+        self.color = ui.TextInput(
+            label="Embed Color (Hex Code)",
+            placeholder="#00FF00",
+            default=current.get("color", "#5865F2"),
+            required=False,
+            max_length=7
+        )
+        self.image_url = ui.TextInput(
+            label="Image/GIF URL",
+            placeholder="https://example.com/welcome.gif",
+            default=current.get("image", ""),
+            required=False
+        )
+        self.footer = ui.TextInput(
+            label="Footer Text",
+            placeholder="We hope you enjoy your stay!",
+            default=current.get("footer", ""),
+            required=False,
+            max_length=2048
+        )
+        
+        self.add_item(self.embed_title)
+        self.add_item(self.description)
+        self.add_item(self.color)
+        self.add_item(self.image_url)
+        self.add_item(self.footer)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate color
+        color_hex = self.color.value.lstrip('#')
+        try:
+            if color_hex:
+                int(color_hex, 16)
+            else:
+                color_hex = "5865F2" # Default Discord Blue
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid hex color code! Use format like #FF0000", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("Welcome")
+        if not cog:
+            await interaction.response.send_message("❌ System error: Cog not found.", ephemeral=True)
+            return
+
+        guild_id_str = str(interaction.guild.id)
+        doc_id = f"{WELCOME_PREFIX}/{guild_id_str}"
+        
+        # Load existing config to merge
+        guild_config = await raven_db.load_document(doc_id) or {}
+        
+        # Update specific config type for the guild
+        guild_config[self.config_type] = {
+            'channel_id': self.channel_id,
+            'is_embed': True,
+            'embed_data': {
+                'title': self.embed_title.value,
+                'description': self.description.value,
+                'color': f"#{color_hex}",
+                'image': self.image_url.value,
+                'footer': self.footer.value
+            }
+        }
+        
+        await raven_db.save_document(doc_id, guild_config)
+        
+        embed = discord.Embed(
+            title=f"✅ {self.config_type.capitalize()} Embed Set!",
+            description=f"Welcome messages in <#{self.channel_id}> will now use your custom embed.",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class Welcome(commands.Cog):
@@ -17,36 +117,28 @@ class Welcome(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        self.config_file = Path('data/welcome_goodbye.json')
-        self.config_file.parent.mkdir(exist_ok=True)
-        self.pending_messages = {}  # Store pending message setups
     
-    def load_config(self):
-        """Load welcome/goodbye configuration"""
-        if not self.config_file.exists():
-            return {}
-        
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+    async def load_guild_config(self, guild_id):
+        """Load welcome/goodbye configuration for a specific guild"""
+        return await raven_db.load_document(f"{WELCOME_PREFIX}/{guild_id}") or {}
     
-    def save_config(self, data):
-        """Save welcome/goodbye configuration"""
-        with open(self.config_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    
-    def replace_tags(self, message: str, member: discord.Member, guild: discord.Guild) -> str:
+    def replace_tags(self, message: str, member: discord.Member, guild: discord.Guild, allow_mentions: bool = True) -> str:
         """Replace tags in message with actual values"""
-        # Replace {user} with display name
+        if not message:
+            return ""
+            
         message = message.replace("{user}", member.display_name)
         
-        # Replace {user-mention} with mention
-        message = message.replace("{user-mention}", member.mention)
+        if allow_mentions:
+            message = message.replace("{user-mention}", member.mention)
+        else:
+            # In titles/footers, mentions don't render, so use display name
+            message = message.replace("{user-mention}", member.display_name)
+            
+        message = message.replace("{user-id}", str(member.id))
+        message = message.replace("{guild}", guild.name)
+        message = message.replace("{member-count}", str(guild.member_count))
         
-        # Replace {channel-ID} with channel mention
-        # Find all {channel-123456789} patterns
         channel_pattern = r'\{channel-(\d+)\}'
         matches = re.finditer(channel_pattern, message)
         
@@ -55,182 +147,103 @@ class Welcome(commands.Cog):
             channel = guild.get_channel(channel_id)
             if channel:
                 message = message.replace(match.group(0), channel.mention)
-            else:
-                # If channel not found, leave the tag as is
-                pass
         
         return message
     
     @app_commands.command(name="setwelcome", description="Set welcome message for new members")
-    @app_commands.describe(channel="Channel to send welcome messages")
+    @app_commands.describe(
+        channel="Channel to send welcome messages",
+        use_embed="Whether to use a fancy embed or plain text"
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def setwelcome(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def setwelcome(self, interaction: discord.Interaction, channel: discord.TextChannel, use_embed: bool = True):
         """Set welcome message"""
-        # Store pending setup
-        self.pending_messages[interaction.user.id] = {
-            'type': 'welcome',
-            'channel_id': channel.id,
-            'guild_id': interaction.guild.id
-        }
-        
-        embed = discord.Embed(
-            title="📝 Welcome Message Setup",
-            description=f"Please send the welcome message you want to use in this channel.\n\n"
-                       f"**Available tags:**\n"
-                       f"`{{user}}` - User's display name\n"
-                       f"`{{user-mention}}` - Mention the user\n"
-                       f"`{{channel-ID}}` - Link to a channel (replace ID with actual channel ID)\n\n"
-                       f"**Example:** Welcome {{user-mention}} to the server! Check out {{channel-123456789}}",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="Target Channel", value=channel.mention, inline=False)
-        embed.set_footer(text="You have 60 seconds to send your message")
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
+        if use_embed:
+            config = await self.load_guild_config(interaction.guild.id)
+            current = config.get("welcome", {}).get("embed_data", {})
+            modal = WelcomeEmbedModal("Welcome Embed Setup", "welcome", channel.id, current)
+            await interaction.response.send_modal(modal)
+        else:
+            await interaction.response.send_message("❌ Plain text mode is being deprecated in favor of embeds. Please use `use_embed: True`", ephemeral=True)
+
     @app_commands.command(name="setgoodbye", description="Set goodbye message for leaving members")
-    @app_commands.describe(channel="Channel to send goodbye messages")
+    @app_commands.describe(
+        channel="Channel to send goodbye messages",
+        use_embed="Whether to use a fancy embed or plain text"
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def setgoodbye(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def setgoodbye(self, interaction: discord.Interaction, channel: discord.TextChannel, use_embed: bool = True):
         """Set goodbye message"""
-        # Store pending setup
-        self.pending_messages[interaction.user.id] = {
-            'type': 'goodbye',
-            'channel_id': channel.id,
-            'guild_id': interaction.guild.id
-        }
-        
-        embed = discord.Embed(
-            title="📝 Goodbye Message Setup",
-            description=f"Please send the goodbye message you want to use in this channel.\n\n"
-                       f"**Available tags:**\n"
-                       f"`{{user}}` - User's display name\n"
-                       f"`{{user-mention}}` - Mention the user\n"
-                       f"`{{channel-ID}}` - Link to a channel (replace ID with actual channel ID)\n\n"
-                       f"**Example:** Goodbye {{user}}! We'll miss you.",
-            color=discord.Color.red()
-        )
-        embed.add_field(name="Target Channel", value=channel.mention, inline=False)
-        embed.set_footer(text="You have 60 seconds to send your message")
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        """Listen for welcome/goodbye message setup"""
-        # Ignore bot messages
-        if message.author.bot:
-            return
-        
-        # Check if user has pending setup
-        if message.author.id not in self.pending_messages:
-            return
-        
-        pending = self.pending_messages[message.author.id]
-        
-        # Verify it's the same guild
-        if message.guild.id != pending['guild_id']:
-            return
-        
-        # Get the message content
-        welcome_message = message.content
-        
-        # Delete the user's message for cleanliness
-        try:
-            await message.delete()
-        except:
-            pass
-        
-        # Save configuration
-        config = self.load_config()
-        guild_id_str = str(pending['guild_id'])
-        
-        if guild_id_str not in config:
-            config[guild_id_str] = {}
-        
-        config[guild_id_str][pending['type']] = {
-            'channel_id': pending['channel_id'],
-            'message': welcome_message
-        }
-        
-        self.save_config(config)
-        
-        # Remove pending setup
-        del self.pending_messages[message.author.id]
-        
-        # Send confirmation
-        channel = message.guild.get_channel(pending['channel_id'])
-        embed = discord.Embed(
-            title=f"✅ {pending['type'].capitalize()} Message Set!",
-            description=f"**Channel:** {channel.mention}\n**Message:** {welcome_message}",
-            color=discord.Color.green()
-        )
-        
-        await message.channel.send(embed=embed, delete_after=10)
-    
+        if use_embed:
+            config = await self.load_guild_config(interaction.guild.id)
+            current = config.get("goodbye", {}).get("embed_data", {})
+            modal = WelcomeEmbedModal("Goodbye Embed Setup", "goodbye", channel.id, current)
+            await interaction.response.send_modal(modal)
+        else:
+            await interaction.response.send_message("❌ Plain text mode is being deprecated in favor of embeds. Please use `use_embed: True`", ephemeral=True)
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         """Send welcome message when member joins"""
-        config = self.load_config()
-        guild_id_str = str(member.guild.id)
-        
-        if guild_id_str not in config:
-            return
-        
-        if 'welcome' not in config[guild_id_str]:
-            return
-        
-        welcome_config = config[guild_id_str]['welcome']
-        channel = member.guild.get_channel(welcome_config['channel_id'])
-        
-        if not channel:
-            return
-        
-        # Replace tags in message
-        message = self.replace_tags(welcome_config['message'], member, member.guild)
-        
-        try:
-            await channel.send(message)
-        except discord.Forbidden:
-            pass  # Bot doesn't have permission to send messages
-    
+        await self._send_notification(member, 'welcome')
+
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         """Send goodbye message when member leaves"""
-        config = self.load_config()
-        guild_id_str = str(member.guild.id)
-        
-        if guild_id_str not in config:
+        await self._send_notification(member, 'goodbye')
+
+    async def _send_notification(self, member, config_type):
+        """Generic handler for welcome/goodbye notifications"""
+        config = await self.load_guild_config(member.guild.id)
+        if not config or config_type not in config:
             return
+            
+        data = config[config_type]
+        channel = member.guild.get_channel(data['channel_id'])
         
-        if 'goodbye' not in config[guild_id_str]:
-            return
-        
-        goodbye_config = config[guild_id_str]['goodbye']
-        channel = member.guild.get_channel(goodbye_config['channel_id'])
+        # Fallback if channel is not in cache
+        if not channel:
+            try:
+                channel = await member.guild.fetch_channel(data['channel_id'])
+            except Exception:
+                pass
         
         if not channel:
+            logger.warning(f"Could not find channel for {config_type} in {member.guild.name}")
             return
-        
-        # Replace tags in message
-        message = self.replace_tags(goodbye_config['message'], member, member.guild)
-        
+
         try:
-            await channel.send(message)
+            if data.get('is_embed'):
+                embed_data = data['embed_data']
+                embed = discord.Embed(
+                    # Disable mentions in title as they don't render
+                    title=self.replace_tags(embed_data.get('title', ''), member, member.guild, allow_mentions=False),
+                    description=self.replace_tags(embed_data.get('description', ''), member, member.guild),
+                )
+                
+                color_str = embed_data.get('color', '#5865F2').lstrip('#')
+                try:
+                    embed.color = discord.Color(int(color_str, 16))
+                except:
+                    embed.color = discord.Color.blue()
+                
+                if embed_data.get('image'):
+                    embed.set_image(url=embed_data['image'])
+                
+                if embed_data.get('footer'):
+                    # Disable mentions in footer as they don't render
+                    embed.set_footer(text=self.replace_tags(embed_data['footer'], member, member.guild, allow_mentions=False))
+                
+                embed.set_thumbnail(url=member.display_avatar.url)
+                await channel.send(embed=embed)
+            else:
+                message = self.replace_tags(data.get('message', ''), member, member.guild)
+                if message:
+                    await channel.send(message)
         except discord.Forbidden:
-            pass  # Bot doesn't have permission to send messages
-    
-    @setwelcome.error
-    async def setwelcome_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ You need Manage Server permission to set welcome messages!", ephemeral=True)
-    
-    @setgoodbye.error
-    async def setgoodbye_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ You need Manage Server permission to set goodbye messages!", ephemeral=True)
-
-
+            logger.warning(f"Forbidden to send {config_type} message in {member.guild.name}")
+        except Exception as e:
+            logger.error(f"Error sending {config_type} message: {e}")
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Handle errors in application commands"""

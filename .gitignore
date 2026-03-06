@@ -64,3 +64,10 @@ tmp/
 # OS
 Thumbs.db
 .DS_Store
+
+# RavenDB Certificates & Data
+*.certificate
+*.crt
+*.key
+*.pem
+free.shizubot.client.certificate/

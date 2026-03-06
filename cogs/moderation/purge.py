@@ -12,23 +12,32 @@ class Purge(commands.Cog):
 
     @app_commands.command(name="purge", description="Delete multiple messages")
     @app_commands.describe(
-        amount="Number of messages to delete (1-100)"
+        amount="Number of messages to check/delete (1-5000)",
+        user="Only delete messages from this user (optional)"
     )
     @app_commands.checks.has_permissions(manage_messages=True)
-    async def purge(self, interaction: discord.Interaction, amount: int):
+    async def purge(self, interaction: discord.Interaction, amount: int, user: discord.Member = None):
         """Delete multiple messages from a channel"""
         try:
-            if amount <= 0 or amount > 100:
-                await interaction.response.send_message("❌ Amount must be between 1 and 100!", ephemeral=True)
+            if amount <= 0 or amount > 5000:
+                await interaction.response.send_message("❌ Amount must be between 1 and 5000!", ephemeral=True)
                 return
             
             await interaction.response.defer(ephemeral=True)
             
-            deleted = await interaction.channel.purge(limit=amount)
+            check_func = None
+            if user:
+                check_func = lambda m: m.author.id == user.id
+            
+            deleted = await interaction.channel.purge(limit=amount, check=check_func)
+            
+            description = f"Successfully deleted {len(deleted)} message(s)."
+            if user:
+                description += f"\nFiltered for user: {user.mention}"
             
             embed = discord.Embed(
                 title="🧹 Messages Purged",
-                description=f"Successfully deleted {len(deleted)} message(s).",
+                description=description,
                 color=discord.Color.green()
             )
             embed.add_field(name="Moderator", value=interaction.user.mention, inline=True)

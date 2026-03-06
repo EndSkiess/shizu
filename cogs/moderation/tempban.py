@@ -1,34 +1,42 @@
+"""
+Moderation - Temporary Bans
+Refactored to use MongoDB for data persistence
+"""
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import json
 import logging
-import asyncio
+from datetime import datetime, UTC, timedelta
+from ..utils.ravendb_manager import raven_db
 
 logger = logging.getLogger('DiscordBot.TempBan')
-from datetime import datetime, timedelta
-from pathlib import Path
 
+TEMPBANS_PREFIX = "tempbans"
 
 class TempBan(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.tempbans_file = Path('data/tempbans.json')
-        self.tempbans_file.parent.mkdir(exist_ok=True)
-        self.tempbans = self.load_tempbans()
         self.check_tempbans.start()
 
-    def load_tempbans(self):
-        """Load tempbans from JSON file"""
-        if self.tempbans_file.exists():
-            with open(self.tempbans_file, 'r') as f:
-                return json.load(f)
-        return {}
+    async def get_all_tempbans(self):
+        """Load all tempbans from RavenDB"""
+        docs = await raven_db.get_all_in_collection(TEMPBANS_PREFIX, limit=1000)
+        tempbans = {}
+        for doc in docs:
+            # Reconstruct key as used in original DB if needed, 
+            # but RavenDB ID is unique enough.
+            doc_id = doc['@metadata']['@id'].split('/')[-1]
+            tempbans[doc_id] = doc
+        return tempbans
 
-    def save_tempbans(self):
-        """Save tempbans to JSON file"""
-        with open(self.tempbans_file, 'w') as f:
-            json.dump(self.tempbans, f, indent=4)
+    async def save_tempban(self, guild_id, user_id, data):
+        """Save a tempban to RavenDB"""
+        key = f"{guild_id}_{user_id}"
+        await raven_db.save_document(f"{TEMPBANS_PREFIX}/{key}", data)
+
+    async def delete_tempban(self, key):
+        """Delete a tempban from RavenDB"""
+        await raven_db.delete_document(f"{TEMPBANS_PREFIX}/{key}")
 
     @app_commands.command(name="tempban", description="Temporarily ban a user")
     @app_commands.describe(
@@ -56,19 +64,18 @@ class TempBan(commands.Cog):
                 await interaction.response.send_message("❌ Duration must be greater than 0!", ephemeral=True)
                 return
             
-            unban_time = (datetime.utcnow() + timedelta(hours=duration)).isoformat()
+            unban_time = (datetime.now(UTC) + timedelta(hours=duration)).isoformat()
             
             await member.ban(reason=f"[TEMPBAN] {reason} | Banned by {interaction.user}")
             
-            key = f"{interaction.guild.id}_{member.id}"
-            self.tempbans[key] = {
+            data = {
                 'guild_id': interaction.guild.id,
                 'user_id': member.id,
                 'unban_time': unban_time,
                 'reason': reason,
                 'moderator': str(interaction.user)
             }
-            self.save_tempbans()
+            await self.save_tempban(interaction.guild.id, member.id, data)
             
             embed = discord.Embed(
                 title="⏱️ Member Temporarily Banned",
@@ -91,11 +98,14 @@ class TempBan(commands.Cog):
     @tasks.loop(minutes=5)
     async def check_tempbans(self):
         """Check for expired tempbans and unban users"""
-        now = datetime.utcnow()
-        to_remove = []
-        
-        for key, data in self.tempbans.items():
+        tempbans = await self.get_all_tempbans()
+        if not tempbans:
+            return
+
+        now = datetime.now(UTC)
+        for key, data in tempbans.items():
             unban_time = datetime.fromisoformat(data['unban_time'])
+            if unban_time.tzinfo is None: unban_time = unban_time.replace(tzinfo=UTC)
             
             if now >= unban_time:
                 guild = self.bot.get_guild(data['guild_id'])
@@ -103,29 +113,16 @@ class TempBan(commands.Cog):
                     try:
                         user = await self.bot.fetch_user(data['user_id'])
                         await guild.unban(user, reason="Tempban expired")
-                        to_remove.append(key)
+                        await self.delete_tempban(key)
                     except Exception as e:
                         logger.error(f"Failed to unban {data['user_id']}: {e}", exc_info=True)
-        
-        for key in to_remove:
-            del self.tempbans[key]
-        
-        if to_remove:
-            self.save_tempbans()
 
     @check_tempbans.before_loop
     async def before_check_tempbans(self):
         await self.bot.wait_until_ready()
 
-    @tempban.error
-    async def tempban_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ You don't have permission to ban members!", ephemeral=True)
-
     def cog_unload(self):
         self.check_tempbans.cancel()
-
-
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Handle errors in application commands"""
