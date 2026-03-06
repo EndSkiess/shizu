@@ -266,6 +266,7 @@ class Quote(commands.Cog):
         
         is_gif = is_animated_avatar or len(decoration_frames) > 1
         num_frames = max(len(avatar_frames), len(decoration_frames), 1)
+        content = message.content or ("[Image Attachment]" if message.attachments else "[Empty Message]")
         
         def load_font(size):
             # Try to find any font in the project
@@ -319,7 +320,6 @@ class Quote(commands.Cog):
         f_date = load_font(30) # Slightly larger date
         f_quote_mark = load_font(180) # Large decorative quote
         
-        content = message.content or ("[Image Attachment]" if message.attachments else "[Empty Message]")
         output_frames = []
         
         for i in range(num_frames):
