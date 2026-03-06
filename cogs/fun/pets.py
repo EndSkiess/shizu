@@ -4,6 +4,7 @@ Pet System - Virtual pets with spawn mechanics, care, and battles
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
+from typing import Union, Optional
 from datetime import datetime, timedelta
 import random
 import logging
@@ -759,10 +760,11 @@ class Pets(commands.Cog):
     @app_commands.command(name="setspawn", description="Set pet spawn channel (Admin only)")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(channel="Channel where pets will spawn")
-    async def setspawn(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
+    async def setspawn(self, interaction: discord.Interaction, channel: Union[discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.ForumChannel]):
         """Set spawn channel"""
-        if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
-            await interaction.response.send_message("❌ Please select a text channel, thread, or voice channel!", ephemeral=True)
+        # Additional safety check
+        if not hasattr(channel, 'send'):
+            await interaction.response.send_message("❌ This type of channel does not support sending messages!", ephemeral=True)
             return
             
         await set_spawn_channel(interaction.guild_id, channel.id)
