@@ -15,6 +15,7 @@ from ..utils.ravendb_manager import raven_db
 logger = logging.getLogger('DiscordBot.Quote')
 
 QUOTE_PREFIX = "quote"
+FONT_PATH_CACHE = None
 
 class DeleteQuoteButton(discord.ui.View):
     """View with a delete button for quotes"""
@@ -216,6 +217,7 @@ class Quote(commands.Cog):
         """
         Generate a quote image with banner background and avatar decorations.
         """
+        content = message.content or ("[Image Attachment]" if message.attachments else "[Empty Message]")
         WIDTH, HEIGHT = 900, 375
         TEXT_COLOR = (255, 255, 255)
         NAME_COLOR = (220, 220, 220)
@@ -266,44 +268,49 @@ class Quote(commands.Cog):
         
         is_gif = is_animated_avatar or len(decoration_frames) > 1
         num_frames = max(len(avatar_frames), len(decoration_frames), 1)
-        content = message.content or ("[Image Attachment]" if message.attachments else "[Empty Message]")
         
         def load_font(size):
-            # Try to find any font in the project
+            global FONT_PATH_CACHE
+            
+            # 1. Try Cache
+            if FONT_PATH_CACHE and os.path.exists(FONT_PATH_CACHE):
+                try: return ImageFont.truetype(FONT_PATH_CACHE, size)
+                except: pass
+
             import pathlib
             root = pathlib.Path(__file__).parent.parent.parent
             
-            # 1. Try preferred fonts in the fonts folder
+            # 2. Try preferred fonts in the fonts folder (FAST)
             preferred = ["Snowman Varsity.ttf", "Richocet Bold.ttf"]
             for name in preferred:
                 p = root / "fonts" / name
                 if p.exists():
-                    try: return ImageFont.truetype(str(p), size)
+                    try:
+                        font = ImageFont.truetype(str(p), size)
+                        FONT_PATH_CACHE = str(p)
+                        return font
                     except: pass
             
-            # 2. Try any .ttf or .otf file in the project
-            for p in root.rglob("*.[t|o]tf"):
-                try: return ImageFont.truetype(str(p), size)
-                except: pass
-                
-            # 3. Try common system fonts
+            # 3. Try common system fonts (FAST)
             sys_fonts = ["arial.ttf", "DejaVuSans.ttf", "Verdana.ttf"]
             for name in sys_fonts:
-                # Windows
                 win_p = pathlib.Path("C:/Windows/Fonts") / name
                 if win_p.exists():
-                    try: return ImageFont.truetype(str(win_p), size)
+                    try:
+                        font = ImageFont.truetype(str(win_p), size)
+                        FONT_PATH_CACHE = str(win_p)
+                        return font
                     except: pass
-                # Linux (Render)
-                linux_paths = ["/usr/share/fonts", "/usr/local/share/fonts", "~/.fonts"]
-                for lp in linux_paths:
-                    lp_p = pathlib.Path(lp).expanduser()
-                    for sp in lp_p.rglob(name):
-                        try: return ImageFont.truetype(str(sp), size)
-                        except: pass
+            
+            # 4. Deep search (SLOW, only if cache/preferred fail)
+            for p in root.rglob("*.[t|o]tf"):
+                try:
+                    font = ImageFont.truetype(str(p), size)
+                    FONT_PATH_CACHE = str(p)
+                    return font
+                except: pass
 
-            # 4. Final fallback (still small, but we tried everything)
-            logger.warning("Could not find any suitable font. Falling back to default.")
+            # 5. Final fallback
             return ImageFont.load_default()
 
         # Scale fonts even larger for shorter text
