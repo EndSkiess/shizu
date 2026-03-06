@@ -760,9 +760,12 @@ class Pets(commands.Cog):
     @app_commands.command(name="setspawn", description="Set pet spawn channel (Admin only)")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(channel="Channel where pets will spawn")
-    async def setspawn(self, interaction: discord.Interaction, channel: Union[discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.ForumChannel]):
+    async def setspawn(self, interaction: discord.Interaction, channel: Union[discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.ForumChannel, discord.CategoryChannel]):
         """Set spawn channel"""
-        # Additional safety check
+        if isinstance(channel, discord.CategoryChannel):
+            await interaction.response.send_message("❌ Pets cannot spawn in a category! Please select a text-based channel.", ephemeral=True)
+            return
+
         if not hasattr(channel, 'send'):
             await interaction.response.send_message("❌ This type of channel does not support sending messages!", ephemeral=True)
             return
@@ -865,12 +868,20 @@ class Pets(commands.Cog):
             await interaction.response.send_message(f"⏳ This command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
         elif isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        elif isinstance(error, app_commands.TransformerError):
+            logger.error(f"Transformer error in pet command '{interaction.command.name}': {error}")
+            msg = f"❌ Failed to resolve the channel '{error.value}'. Please try selecting it from the list rather than typing its name."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
         else:
             logger.error(f"Error in pet command '{interaction.command.name}': {error}", exc_info=True)
+            msg = "❌ An error occurred while processing this command."
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ An error occurred while processing this command.", ephemeral=True)
+                await interaction.response.send_message(msg, ephemeral=True)
             else:
-                await interaction.followup.send("❌ An error occurred while processing this command.", ephemeral=True)
+                await interaction.followup.send(msg, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Pets(bot))
