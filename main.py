@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import logging
 from cogs.utils.ravendb_manager import raven_db
+from aiohttp import web
 
 # Setup logging with UTF-8 encoding for Windows
 logging.basicConfig(
@@ -64,7 +65,8 @@ async def load_cogs():
     for folder in cogs_path.iterdir():
         if folder.is_dir() and not folder.name.startswith('__') and folder.name != 'utils':
             for file in folder.glob('*.py'):
-                if file.stem.startswith('__') or file.stem.endswith('_utils') or file.stem.endswith('_view'):
+                if file.stem.startswith('__') or file.stem.endswith('_utils') or file.stem.endswith('_view') or \
+                   file.stem.endswith('_data') or file.stem.endswith('_mechanics') or file.stem.endswith('_battle'):
                     continue
                 
                 # Construct the cog path: cogs.folder.file
