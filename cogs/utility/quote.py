@@ -267,20 +267,57 @@ class Quote(commands.Cog):
         is_gif = is_animated_avatar or len(decoration_frames) > 1
         num_frames = max(len(avatar_frames), len(decoration_frames), 1)
         
-        def load_font(name, size):
-            cog_dir = os.path.dirname(os.path.abspath(__file__))
-            bot_root = os.path.dirname(os.path.dirname(cog_dir))
-            path = os.path.join(bot_root, "fonts", name)
-            try: return ImageFont.truetype(path, size)
-            except: 
-                try: return ImageFont.truetype(f"C:/Windows/Fonts/{name}", size)
-                except: return ImageFont.load_default()
+        def load_font(size):
+            # Try to find any font in the project
+            import pathlib
+            root = pathlib.Path(__file__).parent.parent.parent
+            
+            # 1. Try preferred fonts in the fonts folder
+            preferred = ["Snowman Varsity.ttf", "Richocet Bold.ttf"]
+            for name in preferred:
+                p = root / "fonts" / name
+                if p.exists():
+                    try: return ImageFont.truetype(str(p), size)
+                    except: pass
+            
+            # 2. Try any .ttf or .otf file in the project
+            for p in root.rglob("*.[t|o]tf"):
+                try: return ImageFont.truetype(str(p), size)
+                except: pass
+                
+            # 3. Try common system fonts
+            sys_fonts = ["arial.ttf", "DejaVuSans.ttf", "Verdana.ttf"]
+            for name in sys_fonts:
+                # Windows
+                win_p = pathlib.Path("C:/Windows/Fonts") / name
+                if win_p.exists():
+                    try: return ImageFont.truetype(str(win_p), size)
+                    except: pass
+                # Linux (Render)
+                linux_paths = ["/usr/share/fonts", "/usr/local/share/fonts", "~/.fonts"]
+                for lp in linux_paths:
+                    lp_p = pathlib.Path(lp).expanduser()
+                    for sp in lp_p.rglob(name):
+                        try: return ImageFont.truetype(str(sp), size)
+                        except: pass
 
-        f_l = load_font("Richocet Bold.ttf", 60)
-        f_m = load_font("Richocet Bold.ttf", 45)
-        f_n = load_font("Richocet Bold.ttf", 40)
-        f_d = load_font("Richocet Bold.ttf", 28)
-        f_q = load_font("Richocet Bold.ttf", 120)
+            # 4. Final fallback (still small, but we tried everything)
+            logger.warning("Could not find any suitable font. Falling back to default.")
+            return ImageFont.load_default()
+
+        # Scale fonts even larger for shorter text
+        if len(content) < 30: 
+            base_size = 100
+        elif len(content) < 80: 
+            base_size = 80
+        else:
+            base_size = 60
+        
+        f_main = load_font(base_size)
+        f_small = load_font(int(base_size * 0.7))
+        f_name = load_font(45) # Slightly larger name
+        f_date = load_font(30) # Slightly larger date
+        f_quote_mark = load_font(180) # Large decorative quote
         
         content = message.content or ("[Image Attachment]" if message.attachments else "[Empty Message]")
         output_frames = []
@@ -318,25 +355,41 @@ class Quote(commands.Cog):
             
             tx, mw = 300, 550
             lines, cur = [], []
-            a_f, l_h = (f_m, 50) if len(content) > 150 else (f_l, 70)
+            
+            # Determine font and line height based on content length
+            if len(content) > 150:
+                a_f, l_h = f_small, int(base_size * 0.85)
+            else:
+                a_f, l_h = f_main, int(base_size * 1.2)
+                
             for word in content.split():
-                if draw.textbbox((0, 0), ' '.join(cur + [word]), font=a_f)[2] <= mw: cur.append(word)
-                else: lines.append(' '.join(cur)); cur = [word]
+                if draw.textbbox((0, 0), ' '.join(cur + [word]), font=a_f)[2] <= mw: 
+                    cur.append(word)
+                else: 
+                    lines.append(' '.join(cur))
+                    cur = [word]
             lines.append(' '.join(cur))
             
-            sy = (HEIGHT - (len(lines) * l_h + 80)) // 2
-            draw.text((tx - 50, sy - 60), '"', font=f_q, fill=(255, 255, 255, 40))
+            # Vertical centering
+            total_text_height = len(lines) * l_h
+            sy = (HEIGHT - total_text_height) // 2 - 20
+            
+            # Quote mark
+            draw.text((tx - 60, sy - 40), '"', font=f_quote_mark, fill=(255, 255, 255, 30))
+            
             cy = sy
             for line in lines[:7]:
-                draw.text((tx + 3, cy + 3), line, font=a_f, fill=(0, 0, 0, 180))
+                # Shadow
+                draw.text((tx + 2, cy + 2), line, font=a_f, fill=(0, 0, 0, 150))
+                # Main text
                 draw.text((tx, cy), line, font=a_f, fill=TEXT_COLOR)
                 cy += l_h
             
             cy += 15
             draw.line([(tx, cy), (tx + 300, cy)], fill=(255, 255, 255, 100), width=2)
             cy += 20
-            draw.text((tx, cy), f"{message.author.display_name}", font=f_n, fill=NAME_COLOR)
-            draw.text((tx, cy + 40), f"@{message.author.name} • {message.created_at.strftime('%b %d, %Y')}", font=f_d, fill=DATE_COLOR)
+            draw.text((tx, cy), f"{message.author.display_name}", font=f_name, fill=NAME_COLOR)
+            draw.text((tx, cy + 45), f"@{message.author.name} • {message.created_at.strftime('%b %d, %Y')}", font=f_date, fill=DATE_COLOR)
             output_frames.append(bg)
         
         buf = io.BytesIO()
