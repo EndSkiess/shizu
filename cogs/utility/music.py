@@ -28,6 +28,27 @@ load_dotenv()
 
 logger = logging.getLogger('DiscordBot.Music')
 
+ACTIVE_INTERACTION = None
+
+class YTDLLogger:
+    def debug(self, msg):
+        pass # Ignore debug messages
+    def warning(self, msg):
+        logger.warning(f"yt-dlp: {msg}")
+    def error(self, msg):
+        logger.error(f"yt-dlp: {msg}")
+    def info(self, msg):
+        logger.info(f"yt-dlp: {msg}")
+        if "To grant access" in msg and ACTIVE_INTERACTION:
+            try:
+                loop = ACTIVE_INTERACTION.client.loop
+                asyncio.run_coroutine_threadsafe(
+                    ACTIVE_INTERACTION.channel.send(f"⚠️ **YouTube Authentication Required**\n\n{msg}\n\n*The bot will pause until you approve this on your device.*"),
+                    loop
+                )
+            except Exception as e:
+                logger.error(f"Failed to send OAuth prompt to Discord: {e}")
+
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -38,15 +59,17 @@ YTDL_OPTIONS = {
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
-    'quiet': True,
+    'quiet': False, # We need quiet=False so our custom logger gets info messages
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    # Provide multiple client fallbacks. android and ios bypass JS checks and PO Tokens 
-    # better than the web/tv clients on datacenter IPs like Render. 
-    # Note: Android/iOS do NOT support cookies, so we do not pass cookiefile.
+    # Enable native OAuth2
+    'username': 'oauth2',
+    'password': '',
+    'logger': YTDLLogger(),
+    # Provide multiple client fallbacks. 
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'ios'],
+            'player_client': ['tv', 'mweb', 'android', 'ios', 'web'],
         },
         'youtubetab': {
             'skip': ['authcheck'],
@@ -401,9 +424,15 @@ class Music(commands.Cog):
                 query = f"ytsearch:{query}"
 
             try:
+                # Set active interaction for the OAuth logger
+                global ACTIVE_INTERACTION
+                ACTIVE_INTERACTION = interaction
+                
                 # Extract info
                 info = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
                 
+                ACTIVE_INTERACTION = None # Clear it
+
                 if 'entries' in info:
                     info = info['entries'][0]
 
@@ -414,6 +443,7 @@ class Music(commands.Cog):
                 })
 
             except Exception as e:
+                ACTIVE_INTERACTION = None # Clear it on error
                 err_str = str(e)
                 if "Sign in to confirm you're not a bot" in err_str:
                     await interaction.followup.send("❌ YouTube is blocking the bot. Please ensure `cookies.txt` is uploaded correctly to the bot's root directory. See [yt-dlp cookies guide](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) for help.", ephemeral=True)
