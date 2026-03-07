@@ -39,16 +39,14 @@ YTDL_OPTIONS = {
     'ignoreerrors': False,
     'logtostderr': False,
     'quiet': True,
-    'no_warnings': False,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'cookiefile': 'cookies.txt',
-    # Provide multiple client fallbacks. tv and mweb support cookies, 
-    # android and ios bypass some JS checks but lack cookie support.
-    # web client is often blocked entirely so we omit it or put it last.
+    # Provide multiple client fallbacks. android and ios bypass JS checks and PO Tokens 
+    # better than the web/tv clients on datacenter IPs like Render. 
+    # Note: Android/iOS do NOT support cookies, so we do not pass cookiefile.
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv', 'mweb', 'android', 'ios'],
+            'player_client': ['android', 'ios'],
         },
         'youtubetab': {
             'skip': ['authcheck'],
@@ -163,10 +161,6 @@ class Music(commands.Cog):
                 self.spotify = None
         else:
             self.spotify = None
-
-        # Check for cookies.txt
-        if not os.path.exists('cookies.txt'):
-            logger.warning("cookies.txt not found in root directory. YouTube playback may fail due to bot detection.")
 
     def get_queue(self, guild_id):
         """Get or create queue for guild"""
