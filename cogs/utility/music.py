@@ -355,6 +355,11 @@ class Music(commands.Cog):
             except Exception as e:
                 await interaction.followup.send(f"❌ Failed to join voice channel: {e}", ephemeral=True)
                 return
+        else:
+            # Check if user is in the same voice channel as the bot
+            if interaction.user.voice.channel != interaction.guild.voice_client.channel:
+                await interaction.followup.send(f"❌ You must be in {interaction.guild.voice_client.channel.mention} to use this command!", ephemeral=True)
+                return
 
         queue = self.get_queue(interaction.guild.id)
 

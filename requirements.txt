@@ -1,6 +1,7 @@
 # Core Discord Bot Dependencies
 # TIP: If installation fails due to memory, use: pip install --no-cache-dir -r requirements.txt
-discord.py>=2.0.0
+discord.py>=2.6.4
+davey>=0.1.4
 python-dotenv>=1.0.0
 
 # HTTP and Async Operations

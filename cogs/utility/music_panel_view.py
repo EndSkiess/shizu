@@ -136,6 +136,18 @@ class MusicControlPanel(ui.View):
             return queue.current
         return None
     
+    async def check_voice(self, interaction: discord.Interaction):
+        """Check if user is in the same voice channel as the bot"""
+        if not interaction.user.voice or not interaction.guild.voice_client:
+            await interaction.response.send_message("❌ You (or the bot) must be in a voice channel!", ephemeral=True)
+            return False
+            
+        if interaction.user.voice.channel != interaction.guild.voice_client.channel:
+            await interaction.response.send_message(f"❌ You must be in {interaction.guild.voice_client.channel.mention} to use this!", ephemeral=True)
+            return False
+            
+        return True
+    
     def create_embed(self):
         """Create the music panel embed"""
         current = self.get_current_info()
@@ -206,10 +218,12 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Down", style=discord.ButtonStyle.secondary, emoji="🔉", row=0)
     async def volume_down(self, interaction: discord.Interaction, button: ui.Button):
         """Decrease volume"""
-        if not interaction.guild.voice_client or not interaction.guild.voice_client.source:
+        if not await self.check_voice(interaction):
+            return
+            
+        if not interaction.guild.voice_client.source:
             await interaction.response.send_message("❌ Nothing is playing!", ephemeral=True)
             return
-        
         current_volume = interaction.guild.voice_client.source.volume
         new_volume = max(0.0, current_volume - 0.1)
         interaction.guild.voice_client.source.volume = new_volume
@@ -230,10 +244,9 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Pause", style=discord.ButtonStyle.primary, emoji="⏸️", row=0)
     async def pause_resume(self, interaction: discord.Interaction, button: ui.Button):
         """Pause/Resume playback"""
-        if not interaction.guild.voice_client:
-            await interaction.response.send_message("❌ Not connected to voice!", ephemeral=True)
+        if not await self.check_voice(interaction):
             return
-        
+            
         vc = interaction.guild.voice_client
         
         if vc.is_playing():
@@ -254,10 +267,12 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Skip", style=discord.ButtonStyle.secondary, emoji="⏭️", row=0)
     async def skip(self, interaction: discord.Interaction, button: ui.Button):
         """Skip current song"""
-        if not interaction.guild.voice_client or not interaction.guild.voice_client.is_playing():
+        if not await self.check_voice(interaction):
+            return
+            
+        if not interaction.guild.voice_client.is_playing():
             await interaction.response.send_message("❌ Nothing is playing!", ephemeral=True)
             return
-        
         interaction.guild.voice_client.stop()
         await interaction.response.send_message("⏭️ Skipped!", ephemeral=True)
         
@@ -271,10 +286,12 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Up", style=discord.ButtonStyle.secondary, emoji="🔊", row=0)
     async def volume_up(self, interaction: discord.Interaction, button: ui.Button):
         """Increase volume"""
-        if not interaction.guild.voice_client or not interaction.guild.voice_client.source:
+        if not await self.check_voice(interaction):
+            return
+            
+        if not interaction.guild.voice_client.source:
             await interaction.response.send_message("❌ Nothing is playing!", ephemeral=True)
             return
-        
         current_volume = interaction.guild.voice_client.source.volume
         new_volume = min(1.0, current_volume + 0.1)
         interaction.guild.voice_client.source.volume = new_volume
@@ -288,10 +305,12 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Shuffle", style=discord.ButtonStyle.secondary, emoji="🔀", row=1)
     async def shuffle(self, interaction: discord.Interaction, button: ui.Button):
         """Shuffle the queue"""
+        if not await self.check_voice(interaction):
+            return
+            
         if not self.music_cog:
             await interaction.response.send_message("❌ Music system not available!", ephemeral=True)
             return
-        
         queue = self.music_cog.get_queue(interaction.guild.id)
         
         if queue.is_empty():
@@ -306,6 +325,9 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Loop", style=discord.ButtonStyle.secondary, emoji="🔁", row=1)
     async def loop(self, interaction: discord.Interaction, button: ui.Button):
         """Toggle loop mode"""
+        if not await self.check_voice(interaction):
+            return
+            
         self.loop_mode = not self.loop_mode
         
         if self.loop_mode:
@@ -320,10 +342,12 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️", row=1)
     async def stop(self, interaction: discord.Interaction, button: ui.Button):
         """Stop playback and clear queue"""
+        if not await self.check_voice(interaction):
+            return
+            
         if not self.music_cog:
             await interaction.response.send_message("❌ Music system not available!", ephemeral=True)
             return
-        
         queue = self.music_cog.get_queue(interaction.guild.id)
         queue.clear()
         
@@ -341,10 +365,12 @@ class MusicControlPanel(ui.View):
     @ui.button(label="AutoPlay", style=discord.ButtonStyle.secondary, emoji="🎲", row=1)
     async def autoplay(self, interaction: discord.Interaction, button: ui.Button):
         """Toggle autoplay mode"""
+        if not await self.check_voice(interaction):
+            return
         if not self.music_cog:
             await interaction.response.send_message("❌ Music system not available!", ephemeral=True)
             return
-        
+            
         # Check if Spotify is configured
         if not self.music_cog.spotify:
             await interaction.response.send_message(
@@ -408,10 +434,13 @@ class MusicControlPanel(ui.View):
     @ui.button(label="Add Song", style=discord.ButtonStyle.success, emoji="➕", row=2)
     async def add_song(self, interaction: discord.Interaction, button: ui.Button):
         """Open modal to add a song"""
+        if not await self.check_voice(interaction):
+            return
+            
         if not self.music_cog:
             await interaction.response.send_message("❌ Music system not available!", ephemeral=True)
             return
-        
+            
         # Open the modal
         modal = AddSongModal(self.music_cog, interaction.guild, self.panel_message, self)
         await interaction.response.send_modal(modal)
