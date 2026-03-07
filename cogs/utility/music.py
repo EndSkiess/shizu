@@ -28,17 +28,11 @@ load_dotenv()
 
 logger = logging.getLogger('DiscordBot.Music')
 
-# YT-DLP options - Optimized for 192kbps quality
+# YT-DLP options - Using android client to bypass PO Token/signature requirements
 YTDL_OPTIONS = {
-    'format': 'bestaudio[ext=m4a]/bestaudio/best',
+    'format': 'bestaudio/best',
     'extractaudio': True,
-    'audioformat': 'opus',  # Better quality than mp3
-    'audioquality': 0,  # 0 = best quality
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'opus',
-        'preferredquality': '192',  # Optimal for Discord (128kbps limit)
-    }],
+    'audioquality': 0,
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': False,
@@ -46,11 +40,22 @@ YTDL_OPTIONS = {
     'ignoreerrors': False,
     'logtostderr': False,
     'quiet': True,
+    'no_warnings': False,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'cookiefile': 'cookies.txt',  # Use cookies for authentication
-    'extractor_args': {'youtubetab': {'skip': ['authcheck']}},  # Skip playlist auth check to avoid extraction errors
+    'cookiefile': 'cookies.txt',
+    # android client bypasses PO Token and JS signature challenges entirely
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android'],
+            'player_skip': ['webpage', 'configs', 'js'],
+        },
+        'youtubetab': {
+            'skip': ['authcheck'],
+        },
+    },
 }
+
 
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
