@@ -28,7 +28,6 @@ load_dotenv()
 
 logger = logging.getLogger('DiscordBot.Music')
 
-# YT-DLP options - Using android client to bypass PO Token/signature requirements
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -44,11 +43,12 @@ YTDL_OPTIONS = {
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'cookiefile': 'cookies.txt',
-    # android client bypasses PO Token and JS signature challenges entirely
+    # Provide multiple client fallbacks. tv and mweb support cookies, 
+    # android and ios bypass some JS checks but lack cookie support.
+    # web client is often blocked entirely so we omit it or put it last.
     'extractor_args': {
         'youtube': {
-            'player_client': ['android'],
-            'player_skip': ['webpage', 'configs', 'js'],
+            'player_client': ['tv', 'mweb', 'android', 'ios'],
         },
         'youtubetab': {
             'skip': ['authcheck'],
