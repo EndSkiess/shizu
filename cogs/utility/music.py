@@ -49,6 +49,7 @@ YTDL_OPTIONS = {
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'cookiefile': 'cookies.txt',  # Use cookies for authentication
+    'extractor_args': {'youtubetab': {'skip': ['authcheck']}},  # Skip playlist auth check to avoid extraction errors
 }
 
 FFMPEG_OPTIONS = {
