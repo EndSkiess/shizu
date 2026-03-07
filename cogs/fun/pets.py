@@ -759,13 +759,38 @@ class Pets(commands.Cog):
     
     @app_commands.command(name="setspawn", description="Set pet spawn channel (Admin only)")
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.describe(channel="Channel where pets will spawn (defaults to this channel)")
-    async def setspawn(self, interaction: discord.Interaction, channel: Optional[discord.abc.GuildChannel] = None):
-        """Set spawn channel (Rewrite)"""
-        # If no channel is provided, default to the current channel
-        target_channel = channel or interaction.channel
+    @app_commands.describe(channel="Channel where pets will spawn (ID, mention, or name)")
+    async def setspawn(self, interaction: discord.Interaction, channel: Optional[str] = None):
+        """Set spawn channel (Foolproof Rewrite)"""
+        target_channel = None
         
-        # Verify the channel is messageable (has a 'send' method)
+        if not channel:
+            target_channel = interaction.channel
+        else:
+            # 1. Try ID
+            if channel.isdigit():
+                target_channel = interaction.guild.get_channel(int(channel))
+                
+            # 2. Try Mention <#12345...>
+            if not target_channel and channel.startswith('<#') and channel.endswith('>'):
+                try:
+                    c_id = int(channel[2:-1].replace('!', ''))
+                    target_channel = interaction.guild.get_channel(c_id)
+                except: pass
+                
+            # 3. Try Name Search (Case-insensitive)
+            if not target_channel:
+                clean_name = channel.lstrip('#').lower()
+                target_channel = discord.utils.get(interaction.guild.channels, name=clean_name)
+                if not target_channel:
+                    # Fuzzy/Lower name match fallback
+                    target_channel = next((c for c in interaction.guild.channels if c.name.lower() == clean_name), None)
+
+        if not target_channel:
+            await interaction.response.send_message(f"❌ Could not find channel '{channel}'. Please provide a valid ID, mention, or exact name.", ephemeral=True)
+            return
+
+        # Verify the channel is messageable
         if not hasattr(target_channel, 'send'):
             await interaction.response.send_message(f"❌ {target_channel.mention} is not a valid channel type! It must be a channel that supports messages.", ephemeral=True)
             return
