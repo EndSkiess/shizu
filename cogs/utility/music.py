@@ -46,11 +46,9 @@ YTDL_OPTIONS = {
     'ignoreerrors': False,
     'logtostderr': False,
     'quiet': True,
-    'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'username': 'oauth2',
-    'password': '',
+    'cookiefile': 'cookies.txt',  # Use cookies for authentication
 }
 
 FFMPEG_OPTIONS = {
@@ -340,11 +338,19 @@ class Music(commands.Cog):
     @app_commands.describe(query="YouTube URL, search query, or Spotify link")
     async def music(self, interaction: discord.Interaction, query: str):
         """Play music and show control panel"""
-        if not HAS_YTDL:
-            await interaction.response.send_message("❌ Music features are currently disabled because the required library (`yt-dlp`) is not installed on the server. This usually happens due to low RAM during installation.", ephemeral=True)
+        # Defer immediately to prevent timeout errors (Unknown Interaction)
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            # Interaction already timed out or was handled elsewhere
             return
-            
-        await interaction.response.defer()
+        except discord.errors.HTTPException:
+            # Interaction already acknowledged
+            pass
+
+        if not HAS_YTDL:
+            await interaction.followup.send("❌ Music features are currently disabled because the required library (`yt-dlp`) is not installed on the server. This usually happens due to low RAM during installation.", ephemeral=True)
+            return
         # Check if user is in voice channel
         if not interaction.user.voice:
             await interaction.followup.send("❌ You need to be in a voice channel!", ephemeral=True)
@@ -446,15 +452,39 @@ class Music(commands.Cog):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Handle errors in application commands"""
         if isinstance(error, app_commands.CommandOnCooldown):
-            await interaction.followup.send(f"⏳ This command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
+            # Check if we can still respond
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"⏳ This command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"⏳ This command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
+            except:
+                pass
         elif isinstance(error, app_commands.MissingPermissions):
-            await interaction.followup.send("❌ You don't have permission to use this command.", ephemeral=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ You don't have permission to use this command.", ephemeral=True)
+            except:
+                pass
         else:
             logger.error(f"Error in music command '{interaction.command.name}': {error}", exc_info=True)
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ An error occurred while processing this command.", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ An error occurred while processing this command.", ephemeral=True)
+            try:
+                # Check for "Sign in to confirm you're not a bot" and provide better help
+                error_msg = str(error)
+                final_msg = "❌ An error occurred while processing this command."
+                
+                if "Sign in to confirm you're not a bot" in error_msg or "bot detection" in error_msg.lower() or "403" in error_msg:
+                    final_msg = "❌ YouTube is blocking the bot. Please ensure `cookies.txt` is uploaded correctly to the bot's root directory."
+                
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(final_msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(final_msg, ephemeral=True)
+            except:
+                # Interaction might be dead/timed out (NotFound 10062)
+                pass
 
 async def setup(bot):
     await bot.add_cog(Music(bot))
