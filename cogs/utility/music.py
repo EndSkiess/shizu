@@ -445,10 +445,7 @@ class Music(commands.Cog):
             except Exception as e:
                 ACTIVE_INTERACTION = None # Clear it on error
                 err_str = str(e)
-                if "Sign in to confirm you're not a bot" in err_str:
-                    await interaction.followup.send("❌ YouTube is blocking the bot. Please ensure `cookies.txt` is uploaded correctly to the bot's root directory. See [yt-dlp cookies guide](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) for help.", ephemeral=True)
-                else:
-                    await interaction.followup.send(f"❌ Error: {err_str}", ephemeral=True)
+                await interaction.followup.send(f"❌ An error occurred while adding that track: {err_str}", ephemeral=True)
                 return
 
         # Start playing if not already playing
