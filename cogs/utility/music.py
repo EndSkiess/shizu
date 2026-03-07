@@ -158,6 +158,10 @@ class Music(commands.Cog):
         else:
             self.spotify = None
 
+        # Check for cookies.txt
+        if not os.path.exists('cookies.txt'):
+            logger.warning("cookies.txt not found in root directory. YouTube playback may fail due to bot detection.")
+
     def get_queue(self, guild_id):
         """Get or create queue for guild"""
         if guild_id not in self.queues:
@@ -410,7 +414,11 @@ class Music(commands.Cog):
                 })
 
             except Exception as e:
-                await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
+                err_str = str(e)
+                if "Sign in to confirm you're not a bot" in err_str:
+                    await interaction.followup.send("❌ YouTube is blocking the bot. Please ensure `cookies.txt` is uploaded correctly to the bot's root directory. See [yt-dlp cookies guide](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) for help.", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"❌ Error: {err_str}", ephemeral=True)
                 return
 
         # Start playing if not already playing
