@@ -28,27 +28,6 @@ load_dotenv()
 
 logger = logging.getLogger('DiscordBot.Music')
 
-ACTIVE_INTERACTION = None
-
-class YTDLLogger:
-    def debug(self, msg):
-        pass # Ignore debug messages
-    def warning(self, msg):
-        logger.warning(f"yt-dlp: {msg}")
-    def error(self, msg):
-        logger.error(f"yt-dlp: {msg}")
-    def info(self, msg):
-        logger.info(f"yt-dlp: {msg}")
-        if "To grant access" in msg and ACTIVE_INTERACTION:
-            try:
-                loop = ACTIVE_INTERACTION.client.loop
-                asyncio.run_coroutine_threadsafe(
-                    ACTIVE_INTERACTION.channel.send(f"⚠️ **YouTube Authentication Required**\n\n{msg}\n\n*The bot will pause until you approve this on your device.*"),
-                    loop
-                )
-            except Exception as e:
-                logger.error(f"Failed to send OAuth prompt to Discord: {e}")
-
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -59,24 +38,23 @@ YTDL_OPTIONS = {
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
-    'quiet': False, # We need quiet=False so our custom logger gets info messages
+    'quiet': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    # Enable native OAuth2
-    'username': 'oauth2',
-    'password': '',
-    'logger': YTDLLogger(),
-    # Provide multiple client fallbacks. 
+    # Absolute minimal configuration for datacenter IPs (Render)
+    # default,-android_sdkless strips out the SDK requirements.
+    # We aggressively skip downloading the webpage, configs, and JS
+    # since that data triggers the "Sign in to confirm you're not a bot" checks.
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv', 'mweb', 'android', 'ios', 'web'],
+            'player_client': ['default,-android_sdkless'],
+            'player_skip': ['webpage', 'configs', 'js'],
         },
         'youtubetab': {
             'skip': ['authcheck'],
         },
     },
 }
-
 
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
@@ -424,15 +402,9 @@ class Music(commands.Cog):
                 query = f"ytsearch:{query}"
 
             try:
-                # Set active interaction for the OAuth logger
-                global ACTIVE_INTERACTION
-                ACTIVE_INTERACTION = interaction
-                
                 # Extract info
                 info = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
                 
-                ACTIVE_INTERACTION = None # Clear it
-
                 if 'entries' in info:
                     info = info['entries'][0]
 
@@ -443,7 +415,6 @@ class Music(commands.Cog):
                 })
 
             except Exception as e:
-                ACTIVE_INTERACTION = None # Clear it on error
                 err_str = str(e)
                 await interaction.followup.send(f"❌ An error occurred while adding that track: {err_str}", ephemeral=True)
                 return
