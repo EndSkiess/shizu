@@ -32,7 +32,7 @@ logger = logging.getLogger('DiscordBot.Music')
 # ---------------------------------------------------------------------------
 # Cookies helper
 # ---------------------------------------------------------------------------
-COOKIES_FILE = os.path.join(os.path.dirname(__file__), '..', 'cookies.txt')
+COOKIES_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'cookies.txt')
 COOKIES_FILE = os.path.normpath(COOKIES_FILE)
 
 def _cookies_opts() -> dict:
