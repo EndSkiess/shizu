@@ -47,7 +47,7 @@ def _cookies_opts() -> dict:
 # ---------------------------------------------------------------------------
 
 _extractor_args_youtube = {
-    'player_client': ['tv_embedded', 'web_embedded'],
+    'player_client': ['android', 'ios'],
 }
 
 _po_token = os.getenv('YOUTUBE_PO_TOKEN')
@@ -72,8 +72,7 @@ YTDL_OPTIONS = {
     'quiet': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    # Use tv_embedded – far less aggressive bot-detection than the default
-    # web client, and doesn't require JS execution.
+    # Impersonate mobile clients to bypass datacenter IP 429 and 152 blocks
     'extractor_args': {
         'youtube': _extractor_args_youtube,
         'youtubetab': {
