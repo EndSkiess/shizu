@@ -47,7 +47,7 @@ def _cookies_opts() -> dict:
 # ---------------------------------------------------------------------------
 
 _extractor_args_youtube = {
-    'player_client': ['android', 'ios'],
+    'player_client': ['mweb', 'web'],
 }
 
 _po_token = os.getenv('YOUTUBE_PO_TOKEN')
