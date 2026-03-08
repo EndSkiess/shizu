@@ -45,6 +45,20 @@ def _cookies_opts() -> dict:
 # ---------------------------------------------------------------------------
 # yt-dlp options  (hardened for datacenter / Render IPs)
 # ---------------------------------------------------------------------------
+
+_extractor_args_youtube = {
+    'player_client': ['tv_embedded', 'web_embedded'],
+}
+
+_po_token = os.getenv('YOUTUBE_PO_TOKEN')
+_visitor_data = os.getenv('YOUTUBE_VISITOR_DATA')
+if _po_token:
+    logger.info("Using YOUTUBE_PO_TOKEN from environment")
+    _extractor_args_youtube['po_token'] = [_po_token]
+if _visitor_data:
+    logger.info("Using YOUTUBE_VISITOR_DATA from environment")
+    _extractor_args_youtube['visitor_data'] = [_visitor_data]
+
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -61,9 +75,7 @@ YTDL_OPTIONS = {
     # Use tv_embedded – far less aggressive bot-detection than the default
     # web client, and doesn't require JS execution.
     'extractor_args': {
-        'youtube': {
-            'player_client': ['tv_embedded', 'web_embedded'],
-        },
+        'youtube': _extractor_args_youtube,
         'youtubetab': {
             'skip': ['authcheck'],
         },
