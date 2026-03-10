@@ -19,11 +19,23 @@ class Roles(commands.Cog):
     async def give_role(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role):
         """Give a role to a member"""
         try:
-            if role >= interaction.guild.me.top_role:
+            # Safely fetch top roles if cache is empty (prevents NoneType TypeError)
+            try:
+                user_top = getattr(interaction.user, 'top_role', None) 
+                bot_top = interaction.guild.me.top_role
+            except TypeError:
+                if interaction.guild and not interaction.guild.roles:
+                    await interaction.guild.fetch_roles()
+                    user_top = getattr(interaction.user, 'top_role', None)
+                    bot_top = interaction.guild.me.top_role
+                else:
+                    user_top = bot_top = None
+
+            if bot_top and role >= bot_top:
                 await interaction.response.send_message("❌ I cannot assign a role that is higher than or equal to my highest role!", ephemeral=True)
                 return
             
-            if role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
+            if user_top and role >= user_top and interaction.user.id != interaction.guild.owner_id:
                 await interaction.response.send_message("❌ You cannot assign a role that is higher than or equal to your highest role!", ephemeral=True)
                 return
             

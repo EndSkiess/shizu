@@ -25,11 +25,28 @@ class Mute(commands.Cog):
                 await interaction.response.send_message("❌ You cannot mute yourself!", ephemeral=True)
                 return
             
-            if member.top_role >= interaction.user.top_role:
+            # Safely fetch top roles if cache is empty (prevents NoneType TypeError)
+            try:
+                member_top = member.top_role
+                user_top = getattr(interaction.user, 'top_role', None) 
+                bot_top = interaction.guild.me.top_role
+            except TypeError:
+                # Discord.py raises TypeError if roles cache is missing and member has multiple roles
+                if interaction.guild and not interaction.guild.roles:
+                    # Fetch roles to populate the cache
+                    await interaction.guild.fetch_roles()
+                    member_top = member.top_role
+                    user_top = getattr(interaction.user, 'top_role', None)
+                    bot_top = interaction.guild.me.top_role
+                else:
+                    # Fallback if we still can't get roles
+                    member_top = user_top = bot_top = None
+
+            if member_top and user_top and member_top >= user_top:
                 await interaction.response.send_message("❌ You cannot mute someone with a higher or equal role!", ephemeral=True)
                 return
             
-            if member.top_role >= interaction.guild.me.top_role:
+            if member_top and bot_top and member_top >= bot_top:
                 await interaction.response.send_message("❌ I cannot mute someone with a higher or equal role than me!", ephemeral=True)
                 return
             
