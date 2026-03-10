@@ -300,22 +300,39 @@ class Music(commands.Cog):
             await self.play_next(ctx)
 
     async def get_spotify_tracks(self, url):
-        if not HAS_SPOTIPY or not self.spotify:
-            return None
         try:
-            if 'playlist' in url:
-                results = self.spotify.playlist_tracks(url)
-                tracks = []
-                for item in results['items']:
-                    track = item['track']
-                    tracks.append(f"{track['artists'][0]['name']} - {track['name']}")
-                return tracks
-            elif 'track' in url:
-                track = self.spotify.track(url)
-                return [f"{track['artists'][0]['name']} - {track['name']}"]
+            if HAS_SPOTIPY and self.spotify:
+                if 'playlist' in url:
+                    results = self.spotify.playlist_tracks(url)
+                    tracks = []
+                    for item in results['items']:
+                        track = item['track']
+                        tracks.append(f"{track['artists'][0]['name']} - {track['name']}")
+                    return tracks
+                elif 'track' in url:
+                    track = self.spotify.track(url)
+                    return [f"{track['artists'][0]['name']} - {track['name']}"]
         except Exception as e:
-            logger.error(f"Spotify error: {e}")
-            return None
+            logger.warning(f"Spotify API failed ({e}), falling back to web scraper...")
+
+        # Fallback to web scraping the <title> tag if the API 403s or isn't configured
+        try:
+            import aiohttp
+            import re
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as resp:
+                    if resp.status == 200:
+                        html = await resp.text()
+                        match = re.search(r'<title>(.*?)</title>', html)
+                        if match:
+                            title = match.group(1).split('|')[0]
+                            title = title.replace('- song and lyrics by', '')
+                            title = title.replace('- song by', '')
+                            return [title.strip()]
+        except Exception as fallback_err:
+            logger.error(f"Spotify fallback scraper failed: {fallback_err}")
+
+        return None
 
     async def get_spotify_recommendations(self, track_title):
         if not self.spotify:
