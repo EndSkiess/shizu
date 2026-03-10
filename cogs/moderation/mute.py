@@ -32,14 +32,17 @@ class Mute(commands.Cog):
                 bot_top = interaction.guild.me.top_role
             except TypeError:
                 # Discord.py raises TypeError if roles cache is missing and member has multiple roles
-                if interaction.guild and not interaction.guild.roles:
-                    # Fetch roles to populate the cache
-                    await interaction.guild.fetch_roles()
-                    member_top = member.top_role
-                    user_top = getattr(interaction.user, 'top_role', None)
-                    bot_top = interaction.guild.me.top_role
-                else:
-                    # Fallback if we still can't get roles
+                try:
+                    if interaction.guild and not interaction.guild.roles:
+                        # Fetch roles to populate the cache
+                        await interaction.guild.fetch_roles()
+                        member_top = member.top_role
+                        user_top = getattr(interaction.user, 'top_role', None)
+                        bot_top = interaction.guild.me.top_role
+                    else:
+                        # Fallback if we still can't get roles
+                        member_top = user_top = bot_top = None
+                except discord.HTTPException:
                     member_top = user_top = bot_top = None
 
             if member_top and user_top and member_top >= user_top:

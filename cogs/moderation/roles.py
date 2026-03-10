@@ -24,11 +24,14 @@ class Roles(commands.Cog):
                 user_top = getattr(interaction.user, 'top_role', None) 
                 bot_top = interaction.guild.me.top_role
             except TypeError:
-                if interaction.guild and not interaction.guild.roles:
-                    await interaction.guild.fetch_roles()
-                    user_top = getattr(interaction.user, 'top_role', None)
-                    bot_top = interaction.guild.me.top_role
-                else:
+                try:
+                    if interaction.guild and not interaction.guild.roles:
+                        await interaction.guild.fetch_roles()
+                        user_top = getattr(interaction.user, 'top_role', None)
+                        bot_top = interaction.guild.me.top_role
+                    else:
+                        user_top = bot_top = None
+                except discord.HTTPException:
                     user_top = bot_top = None
 
             if bot_top and role >= bot_top:
