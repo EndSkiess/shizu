@@ -92,6 +92,9 @@ YTDL_OPTIONS = {
     # JS runtime for signature challenges
     'js_runtimes': {'node': {}},
     
+    # Enable fetching EJS (Extracted JavaScript) challenge solvers from github
+    'remote_components': ['ejs:github'],
+    
     **_cookies_opts(),
 }
 
