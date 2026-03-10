@@ -83,6 +83,15 @@ YTDL_OPTIONS = {
     'retries': 5,
     'fragment_retries': 5,
     'skip_unavailable_fragments': True,
+    
+    # Anti-429 Rate Limiting
+    'sleep_requests': 2,
+    'sleep_interval': 5,
+    'max_sleep_interval': 15,
+    
+    # JS runtime for signature challenges
+    'js_runtimes': ['node'],
+    
     **_cookies_opts(),
 }
 
