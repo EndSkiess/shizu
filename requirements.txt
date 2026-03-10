@@ -11,7 +11,7 @@ aiohttp>=3.8.0
 Pillow>=10.0.0
 
 # Music Functionality
-yt-dlp>=2025.2.18
+yt-dlp @ git+https://github.com/yt-dlp/yt-dlp.git@master
 PyNaCl>=1.5.0
 
 # Spotify Integration
