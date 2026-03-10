@@ -61,6 +61,8 @@ class Roles(commands.Cog):
             
         except discord.Forbidden:
             await interaction.response.send_message("❌ I don't have permission to manage roles!", ephemeral=True)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ I cannot perform this action here. Make sure I am invited to this server!", ephemeral=True)
         except Exception as e:
             logger.error(f"Error giving role: {e}", exc_info=True)
             await interaction.response.send_message("❌ An error occurred while processing this command.", ephemeral=True)

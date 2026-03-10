@@ -63,6 +63,8 @@ class Kick(commands.Cog):
             
         except discord.Forbidden:
             await interaction.response.send_message("❌ I don't have permission to kick this user!", ephemeral=True)
+        except discord.NotFound:
+            await interaction.response.send_message("❌ I cannot perform this action here. Make sure I am invited to this server!", ephemeral=True)
         except Exception as e:
             logger.error(f"Error kicking member: {e}", exc_info=True)
             await interaction.response.send_message("❌ An error occurred while processing this command.", ephemeral=True)
