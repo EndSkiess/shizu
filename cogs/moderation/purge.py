@@ -23,14 +23,17 @@ class Purge(commands.Cog):
                 await interaction.response.send_message("❌ Amount must be between 1 and 5000!", ephemeral=True)
                 return
             
-            await interaction.response.defer(ephemeral=True)
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except discord.errors.NotFound:
+                # Interaction already acknowledged or expired
+                pass
             
             if user:
                 check_func = lambda m: m.author.id == user.id
+                deleted = await interaction.channel.purge(limit=amount, check=check_func)
             else:
-                check_func = lambda m: True
-            
-            deleted = await interaction.channel.purge(limit=amount, check=check_func)
+                deleted = await interaction.channel.purge(limit=amount)
             
             description = f"Successfully deleted {len(deleted)} message(s)."
             if user:
