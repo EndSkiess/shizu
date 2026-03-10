@@ -25,9 +25,10 @@ class Purge(commands.Cog):
             
             await interaction.response.defer(ephemeral=True)
             
-            check_func = None
             if user:
                 check_func = lambda m: m.author.id == user.id
+            else:
+                check_func = lambda m: True
             
             deleted = await interaction.channel.purge(limit=amount, check=check_func)
             
