@@ -90,7 +90,7 @@ YTDL_OPTIONS = {
     'max_sleep_interval': 15,
     
     # JS runtime for signature challenges
-    'js_runtimes': ['node'],
+    'js_runtimes': {'node': {}},
     
     **_cookies_opts(),
 }
