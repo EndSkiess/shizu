@@ -11,7 +11,7 @@ class EasterEgg(commands.Cog):
         # ==========================================
         # CONFIGURATION - CHANGE THESE TO MATCH YOURS!
         # ==========================================
-        self.secret_code = "XXXX-YYYY-ZZZZ" # The code from your website
+        self.secret_code = "5091-7342-8819" # The code from your website
         self.reward_role_name = "System Admin" # The role to give them exactly as it's spelled
         self.hall_of_fame_channel_id = None # Change this to a channel ID like: 123456789012345678
         self.reward_amount = 10000 # How many coins to give them
@@ -45,7 +45,7 @@ class EasterEgg(commands.Cog):
             return
 
         # 2. Check the code
-        if code == self.secret_code:
+        if self.secret_code in code.strip():
             # Save to Database immediately
             await self.add_redeemed_user(interaction.user.id)
             
